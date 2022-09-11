@@ -8,9 +8,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/easy-framework/easy-framework/config_internal"
-	"github.com/easy-framework/easy-framework/config_live"
-	"github.com/easy-framework/easy-framework/raft"
+	"github.com/ez-framework/ez-framework/config_internal"
+	"github.com/ez-framework/ez-framework/config_live"
+	"github.com/ez-framework/ez-framework/raft"
 )
 
 func init() {
