@@ -8,8 +8,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/didip/easy-framework/liveconfig"
-	"github.com/didip/easy-framework/raft"
+	"github.com/easy-framework/easy-framework/config_internal"
+	"github.com/easy-framework/easy-framework/config_live"
+	"github.com/easy-framework/easy-framework/raft"
 )
 
 func init() {
@@ -26,17 +27,6 @@ func main() {
 	flag.Parse()
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create a raft node and participate in membership
-
-	raftNode, err := raft.NewRaft(*clusterName, *logPath, *clusterSize, *natsAddr)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create a raft node")
-	}
-	defer raftNode.Close()
-
-	raftNode.Run()
-
-	// ---------------------------------------------------------------------------
 	// Example on how to connect to Jetstream
 
 	nc, err := nats.Connect(*natsAddr)
@@ -50,9 +40,32 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
-	liveconf, err := liveconfig.NewLiveConfig(jetstreamContext)
+	liveconf, err := config_live.NewConfigLive(jetstreamContext)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create liveconfig")
+		log.Fatal().Err(err).Msg("failed to create liveconf")
 	}
-	liveconf.SubscribeConfigUpdate()
+	go liveconf.SubscribeConfigUpdate()
+
+	// ---------------------------------------------------------------------------
+	// Example on how to create a raft node and participate in membership
+
+	raftActor := raft.NewRaftActor()
+	go raftActor.Run()
+
+	raftInternalConfig := config_internal.ConfigRaft{
+		LogPath:     *logPath,
+		ClusterName: *clusterName,
+		ClusterSize: *clusterSize,
+		NatsAddr:    *natsAddr,
+	}
+	raftInternalConfigJsonBytes, err := raftInternalConfig.ToJSONBytes()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create raft node config")
+	}
+	err = liveconf.Publish(raftInternalConfig.GetConfigKey(), raftInternalConfigJsonBytes)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to publis raft node config")
+	}
+
+	select {}
 }
