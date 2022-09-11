@@ -1,4 +1,4 @@
-module github.com/didip/easy-framework
+module github.com/ez-framework/ez-framework
 
 go 1.19
 
