@@ -24,14 +24,12 @@ func (ra *RaftActor) Run() {
 	infoLogger := log.Info()
 	errLogger := log.Error()
 
-	configKey := config_internal.ConfigRaft{}.GetConfigKey()
+	configKey := config_internal.ConfigRaftKey
 
 	ra.jc.Subscribe(configKey, func(msg *nats.Msg) {
-		log.Info().Str("configKey", configKey).Msg("Subscribing to a nats subject")
-
 		configBytes := msg.Data
 
-		infoLogger.Bytes("configBytes", configBytes).Msg("Received an update message")
+		infoLogger.Str("configKey", configKey).Bytes("configBytes", configBytes).Msg("Received an update message")
 		conf := config_internal.ConfigRaft{}
 
 		err := json.Unmarshal(configBytes, &conf)

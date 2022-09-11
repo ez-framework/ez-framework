@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -47,10 +48,14 @@ func main() {
 	go liveconf.SubscribeConfigUpdate()
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create a raft node and participate in membership
+	// Example on how to create a raft node as an actor
 
 	raftActor := raft.NewRaftActor(jetstreamContext)
 	go raftActor.Run()
+
+	// ---------------------------------------------------------------------------
+	// Example on how to send pubsub config change to all nodes
+	// If RaftNode is not created, it will create a new RaftNode and participates in elections
 
 	raftInternalConfig := config_internal.ConfigRaft{
 		LogPath:     *logPath,
@@ -66,6 +71,28 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to publish raft node config")
 	}
+
+	time.Sleep(10 * time.Second)
+
+	// ---------------------------------------------------------------------------
+	// Example on how to send pubsub config again to change to all nodes
+	// If RaftNode is not created, it will create a new RaftNode and participates in elections
+
+	raftInternalConfig = config_internal.ConfigRaft{
+		LogPath:     *logPath,
+		ClusterName: *clusterName,
+		ClusterSize: 5, // from 3
+		NatsAddr:    *natsAddr,
+	}
+	raftInternalConfigJsonBytes, err = raftInternalConfig.ToJSONBytes()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create raft node config again")
+	}
+	err = liveconf.Publish(raftInternalConfig.GetConfigKey(), raftInternalConfigJsonBytes)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to publish raft node config again")
+	}
+	log.Info().Err(err).Msg("Publish raft node config again")
 
 	select {}
 }

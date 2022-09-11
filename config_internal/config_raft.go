@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 )
 
+var ConfigRaftKey string = "ez-configlive.raft-node"
+
 type INatsAddr interface {
 	GetNatsAddr() string
 }
@@ -24,5 +26,5 @@ func (cr ConfigRaft) ToJSONBytes() ([]byte, error) {
 }
 
 func (cr ConfigRaft) GetConfigKey() string {
-	return "ez-configlive.raft-node"
+	return ConfigRaftKey
 }

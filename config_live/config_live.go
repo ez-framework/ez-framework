@@ -1,6 +1,8 @@
 package config_live
 
 import (
+	"bytes"
+
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
@@ -65,16 +67,29 @@ func (cl *ConfigLive) Publish(key string, data []byte) error {
 // TODO: Use the most consistent settings.
 func (cl *ConfigLive) SubscribeConfigUpdate() {
 	cl.jc.Subscribe("ez-configlive.*", func(msg *nats.Msg) {
-		log.Info().Str("subscribeGlob", "ez-configlive.*").Msg("Subscribing to a nats subject")
+		log.Info().Str("subscribeGlob", "ez-configlive.*").Msg("Subscribing to nats subjects prefixed with glob")
 
 		key := msg.Subject
 		value := msg.Data
 
+		existingConfig, err := cl.kv.Get(key)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get existing config")
+			return
+		}
+
+		// Don't do anything if new config is the same as existing config
+		existingConfigBytes := existingConfig.Value()
+		if bytes.Equal(existingConfigBytes, value) {
+			return
+		}
+
+		// Update config in kv store
 		revision, err := cl.kv.Put(key, value)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to update config")
+			log.Error().Err(err).Msg("Failed to update config in KV store")
 		} else {
-			log.Info().Int64("revision", int64(revision)).Str("configKey", key).Msg("Updated config")
+			log.Info().Int64("revision", int64(revision)).Str("configKey", key).Msg("Updated config in KV store")
 		}
 	})
 }
@@ -83,7 +98,7 @@ func (cl *ConfigLive) SubscribeConfigUpdate() {
 func (cl *ConfigLive) GetConfigBytes(key string) ([]byte, error) {
 	entry, err := cl.kv.Get(key)
 	if err != nil {
-		log.Error().Err(err).Str("configKey", key).Msg("Failed to get config")
+		log.Error().Err(err).Str("configKey", key).Msg("Failed to get config from KV store")
 		return nil, err
 	}
 
