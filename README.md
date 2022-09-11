@@ -11,21 +11,15 @@ docker compose up
 The only dependency is Nats.
 
 It can:
-1. Election: Perform leader election easily. 
+1. Election: Perform leader election easily. [DONE]
 
   * See: https://github.com/tylertreat/nats-leader-election/blob/master/main.go
 
-  * [DONE]
+2. Election: Easy way to execute functions only as a leader. [DONE]
 
-2. Election: Easy way to execute functions only as a leader.
+3. Election: Easy way to execute functions only as a follower. [DONE]
 
-  * [DONE]
-
-3. Election: Easy way to execute functions only as a follower.
-
-  * [DONE]
-
-4. Config: Easy way to receive messages on every node via pubsub.
+4. Config: Easy way to receive messages on every node via pubsub. [DONE]
 
 5. Config: Easy way to update config and password via key-value store and pubsub to update cache.
 
@@ -33,12 +27,14 @@ It can:
 
 7. Config: in memory cache.
 
-8. WS: Easy way to scale websocket via pubsub.
+8. IoT+WS: Easy way to scale websocket via pubsub.
 
-9. Jobs: Easy way to schedule cron via leader functionality.
+9. IoT+WS: Easy way to send config to IoT edge.
 
-10. Jobs: Easy way to have round robin worker via Jetstream as queue.
+10. Jobs: Easy way to schedule cron via leader functionality.
 
-11. Security: LDAP ready with concepts of groups.
+11. Jobs: Easy way to have round robin worker via Jetstream as queue.
 
-12. Security: Custom username+password via basic auth.
+12. Security: LDAP ready with concepts of groups.
+
+13. Security: Custom username+password via basic auth.
