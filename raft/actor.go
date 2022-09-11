@@ -3,38 +3,41 @@ package raft
 import (
 	"encoding/json"
 
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/config_internal"
 )
 
-func NewRaftActor() *RaftActor {
+func NewRaftActor(jetstreamContext nats.JetStreamContext) *RaftActor {
 	return &RaftActor{
-		updateChannel: make(chan []byte),
+		jc: jetstreamContext,
 	}
 }
 
 type RaftActor struct {
-	updateChannel chan []byte
-	raftNode      *Raft
-}
-
-func (ra *RaftActor) GetUpdateChannel() chan []byte {
-	return ra.updateChannel
+	jc       nats.JetStreamContext
+	raftNode *Raft
 }
 
 func (ra *RaftActor) Run() {
 	infoLogger := log.Info()
 	errLogger := log.Error()
 
-	for {
-		payload := <-ra.updateChannel
-		infoLogger.Bytes("updateChannelPayload", payload).Msg("Received an update message")
+	configKey := config_internal.ConfigRaft{}.GetConfigKey()
+
+	ra.jc.Subscribe(configKey, func(msg *nats.Msg) {
+		log.Info().Str("configKey", configKey).Msg("Subscribing to a nats subject")
+
+		configBytes := msg.Data
+
+		infoLogger.Bytes("configBytes", configBytes).Msg("Received an update message")
 		conf := config_internal.ConfigRaft{}
 
-		err := json.Unmarshal(payload, &conf)
+		err := json.Unmarshal(configBytes, &conf)
 		if err != nil {
 			errLogger.Err(err).Msg("Failed to unmarshal config")
+			return
 		}
 
 		if ra.raftNode != nil {
@@ -47,6 +50,7 @@ func (ra *RaftActor) Run() {
 		}
 		ra.raftNode = raftNode
 
+		infoLogger.Msg("RaftActor is running")
 		raftNode.Run()
-	}
+	})
 }

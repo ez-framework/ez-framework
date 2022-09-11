@@ -6,26 +6,55 @@ import (
 )
 
 func NewConfigLive(jetstreamContext nats.JetStreamContext) (*ConfigLive, error) {
-	ps := &ConfigLive{
-		JetstreamContext: jetstreamContext,
+	cl := &ConfigLive{
+		jc: jetstreamContext,
 	}
 
-	kv, err := ps.JetstreamContext.CreateKeyValue(&nats.KeyValueConfig{Bucket: "ez-configlive"})
+	kv, err := cl.jc.CreateKeyValue(&nats.KeyValueConfig{Bucket: "ez-configlive"})
 	if err != nil {
 		return nil, err
 	}
-	ps.kv = kv
+	cl.kv = kv
 
-	return ps, nil
+	err = cl.createStream()
+	if err != nil {
+		return nil, err
+	}
+
+	return cl, nil
 }
 
 type ConfigLive struct {
-	JetstreamContext nats.JetStreamContext
-	kv               nats.KeyValue
+	jc nats.JetStreamContext
+	kv nats.KeyValue
 }
 
-func (ps *ConfigLive) Publish(key string, data []byte) error {
-	_, err := ps.JetstreamContext.Publish(key, data)
+func (cl *ConfigLive) createStream() error {
+	streamName := "ez-configlive"
+	streamSubjects := "ez-configlive.*"
+
+	stream, err := cl.jc.StreamInfo(streamName)
+	if err != nil {
+		if err.Error() != "nats: stream not found" {
+			return err
+		}
+	}
+	if stream == nil {
+		log.Info().Str("streamName", streamName).Str("streamSubjects", streamSubjects).Msg("Creating a stream")
+
+		_, err = cl.jc.AddStream(&nats.StreamConfig{
+			Name:     streamName,
+			Subjects: []string{streamSubjects},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (cl *ConfigLive) Publish(key string, data []byte) error {
+	_, err := cl.jc.Publish(key, data)
 	if err != nil {
 		log.Error().Err(err).Str("configKey", key).Msg("Failed to publish config")
 	}
@@ -34,12 +63,14 @@ func (ps *ConfigLive) Publish(key string, data []byte) error {
 
 // SubscribeConfigUpdate listens to config changes and update the storage
 // TODO: Use the most consistent settings.
-func (ps *ConfigLive) SubscribeConfigUpdate() (*nats.Subscription, error) {
-	return ps.JetstreamContext.Subscribe("ez-configlive.*", func(msg *nats.Msg) {
+func (cl *ConfigLive) SubscribeConfigUpdate() {
+	cl.jc.Subscribe("ez-configlive.*", func(msg *nats.Msg) {
+		log.Info().Str("subscribeGlob", "ez-configlive.*").Msg("Subscribing to a nats subject")
+
 		key := msg.Subject
 		value := msg.Data
 
-		revision, err := ps.kv.Put(key, value)
+		revision, err := cl.kv.Put(key, value)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to update config")
 		} else {
@@ -49,8 +80,8 @@ func (ps *ConfigLive) SubscribeConfigUpdate() (*nats.Subscription, error) {
 }
 
 // GetConfigBytes returns config from the KV backend in bytes.s
-func (ps *ConfigLive) GetConfigBytes(key string) ([]byte, error) {
-	entry, err := ps.kv.Get(key)
+func (cl *ConfigLive) GetConfigBytes(key string) ([]byte, error) {
+	entry, err := cl.kv.Get(key)
 	if err != nil {
 		log.Error().Err(err).Str("configKey", key).Msg("Failed to get config")
 		return nil, err

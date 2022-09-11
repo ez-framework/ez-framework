@@ -49,7 +49,7 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node and participate in membership
 
-	raftActor := raft.NewRaftActor()
+	raftActor := raft.NewRaftActor(jetstreamContext)
 	go raftActor.Run()
 
 	raftInternalConfig := config_internal.ConfigRaft{
@@ -64,7 +64,7 @@ func main() {
 	}
 	err = liveconf.Publish(raftInternalConfig.GetConfigKey(), raftInternalConfigJsonBytes)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to publis raft node config")
+		log.Fatal().Err(err).Msg("failed to publish raft node config")
 	}
 
 	select {}
