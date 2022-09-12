@@ -8,8 +8,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/ez-framework/ez-framework/config_live"
-	"github.com/ez-framework/ez-framework/raft"
+	"github.com/ez-framework/ez-framework/actors"
 )
 
 func init() {
@@ -39,16 +38,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
-	liveconf, err := config_live.NewConfigLive(jetstreamContext)
+	liveconf, err := actors.NewConfigActor(jetstreamContext)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create ConfigLive")
+		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
 	go liveconf.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 
-	raftActor, err := raft.NewRaftActor(jetstreamContext)
+	raftActor, err := actors.NewRaftActor(jetstreamContext)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
 	}

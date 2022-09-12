@@ -1,4 +1,4 @@
-package config_live
+package actors
 
 import (
 	"bytes"
@@ -12,15 +12,15 @@ import (
 	"github.com/ez-framework/ez-framework/config_internal"
 )
 
-var configLiveLogger = log.With().
+var configActorLogger = log.With().
 	Str("streamName", config_internal.JetStreamStreamName).
 	Str("streamSubjects", config_internal.JetStreamStreamSubjects).
 	Str("KVBucket", config_internal.KVBucketName).
 	Logger().Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-// NewConfigLive is the constructor for *ConfigLive
-func NewConfigLive(jetstreamContext nats.JetStreamContext) (*ConfigLive, error) {
-	cl := &ConfigLive{
+// NewConfigActor is the constructor for *ConfigActor
+func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error) {
+	cl := &ConfigActor{
 		jc:         jetstreamContext,
 		updateChan: make(chan *nats.Msg),
 	}
@@ -38,13 +38,13 @@ func NewConfigLive(jetstreamContext nats.JetStreamContext) (*ConfigLive, error) 
 	return cl, nil
 }
 
-type ConfigLive struct {
+type ConfigActor struct {
 	jc         nats.JetStreamContext
 	kv         nats.KeyValue
 	updateChan chan *nats.Msg
 }
 
-func (cl *ConfigLive) setupKVStore() error {
+func (cl *ConfigActor) setupKVStore() error {
 	bucketName := config_internal.JetStreamStreamName
 
 	kv, err := cl.jc.KeyValue(bucketName)
@@ -59,11 +59,11 @@ func (cl *ConfigLive) setupKVStore() error {
 		return nil
 	}
 
-	configLiveLogger.Error().Err(err).Msg("Failed to setup KV store")
+	configActorLogger.Error().Err(err).Msg("Failed to setup KV store")
 	return err
 }
 
-func (cl *ConfigLive) setupJetStreamStream() error {
+func (cl *ConfigActor) setupJetStreamStream() error {
 	stream, err := cl.jc.StreamInfo(config_internal.JetStreamStreamName)
 	if err != nil {
 		if err.Error() != "nats: stream not found" {
@@ -71,7 +71,7 @@ func (cl *ConfigLive) setupJetStreamStream() error {
 		}
 	}
 	if stream == nil {
-		configLiveLogger.Info().Msg("Creating a JetStream stream")
+		configActorLogger.Info().Msg("Creating a JetStream stream")
 
 		_, err = cl.jc.AddStream(&nats.StreamConfig{
 			Name:     config_internal.JetStreamStreamName,
@@ -85,17 +85,17 @@ func (cl *ConfigLive) setupJetStreamStream() error {
 }
 
 // Publish a new config by passing it into JetStream with configKey identifier
-func (cl *ConfigLive) Publish(configKey string, data []byte) error {
+func (cl *ConfigActor) Publish(configKey string, data []byte) error {
 	_, err := cl.jc.Publish(configKey, data)
 	if err != nil {
-		configLiveLogger.Error().Err(err).Str("configKey", configKey).Msg("Failed to publish config")
+		configActorLogger.Error().Err(err).Str("configKey", configKey).Msg("Failed to publish config")
 	}
 
 	return err
 }
 
-func (cl *ConfigLive) retrySubscribing(configKey string) *nats.Subscription {
-	errLogger := configLiveLogger.Error().Str("configKey", configKey)
+func (cl *ConfigActor) retrySubscribing(configKey string) *nats.Subscription {
+	errLogger := configActorLogger.Error().Str("configKey", configKey)
 
 	sub, err := cl.jc.ChanSubscribe(configKey, cl.updateChan)
 	n := 0
@@ -117,11 +117,11 @@ func (cl *ConfigLive) retrySubscribing(configKey string) *nats.Subscription {
 
 // Run listens to config changes and update the storage
 // TODO: Use the most consistent settings.
-func (cl *ConfigLive) Run() {
+func (cl *ConfigActor) Run() {
 	subscription := cl.retrySubscribing(config_internal.JetStreamStreamSubjects)
 	defer subscription.Unsubscribe()
 
-	configLiveLogger.Info().Msg("Subscribing to nats subjects")
+	configActorLogger.Info().Msg("Subscribing to nats subjects")
 
 	// Wait until we get a new message
 	for {
@@ -130,7 +130,7 @@ func (cl *ConfigLive) Run() {
 		configKey := msg.Subject
 		configBytes := msg.Data
 
-		logger := configLiveLogger.With().Str("configKey", configKey).Logger()
+		logger := configActorLogger.With().Str("configKey", configKey).Logger()
 
 		// Get existing config
 		existingConfig, err := cl.kv.Get(configKey)
@@ -156,10 +156,10 @@ func (cl *ConfigLive) Run() {
 }
 
 // GetConfigBytes returns config from the KV backend in bytes
-func (cl *ConfigLive) GetConfigBytes(key string) ([]byte, error) {
+func (cl *ConfigActor) GetConfigBytes(key string) ([]byte, error) {
 	entry, err := cl.kv.Get(key)
 	if err != nil {
-		configLiveLogger.Error().Err(err).Str("configKey", key).Msg("Failed to get config from KV store")
+		configActorLogger.Error().Err(err).Str("configKey", key).Msg("Failed to get config from KV store")
 		return nil, err
 	}
 

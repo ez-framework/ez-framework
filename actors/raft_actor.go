@@ -1,4 +1,4 @@
-package raft
+package actors
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/config_internal"
+	"github.com/ez-framework/ez-framework/raft"
 )
 
 func NewRaftActor(jetstreamContext nats.JetStreamContext) (*RaftActor, error) {
@@ -30,7 +31,7 @@ type RaftActor struct {
 	kv         nats.KeyValue
 	configKey  string
 	updateChan chan *nats.Msg
-	raftNode   *Raft
+	raftNode   *raft.Raft
 }
 
 func (ra *RaftActor) setupKVStore() error {
@@ -97,7 +98,7 @@ func (ra *RaftActor) Run() {
 			ra.raftNode.Close()
 		}
 
-		raftNode, err := NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
+		raftNode, err := raft.NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
 		if err != nil {
 			errLogger.Err(err).Msg("failed to create a raft node")
 		}
