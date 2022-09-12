@@ -5,3 +5,7 @@ type IConfigInternal interface {
 	ToJSONBytes() ([]byte, error)
 	GetConfigKey() string
 }
+
+var JetStreamStreamName string = "ez-configlive"
+var JetStreamStreamSubjects string = JetStreamStreamName + ".*"
+var KVBucketName string = JetStreamStreamName

@@ -3,13 +3,11 @@ package main
 import (
 	"flag"
 	"os"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/ez-framework/ez-framework/config_internal"
 	"github.com/ez-framework/ez-framework/config_live"
 	"github.com/ez-framework/ez-framework/raft"
 )
@@ -20,10 +18,10 @@ func init() {
 
 func main() {
 	var (
-		logPath     = flag.String("path", "./.data/graft.log", "Raft log path")
-		clusterName = flag.String("cluster", "cluster", "Cluster name")
-		clusterSize = flag.Int("size", 3, "Cluster size")
-		natsAddr    = flag.String("nats", nats.DefaultURL, "NATS address")
+		// logPath     = flag.String("path", "./.data/graft.log", "Raft log path")
+		// clusterName = flag.String("cluster", "cluster", "Cluster name")
+		// clusterSize = flag.Int("size", 3, "Cluster size")
+		natsAddr = flag.String("nats", nats.DefaultURL, "NATS address")
 	)
 	flag.Parse()
 
@@ -43,56 +41,26 @@ func main() {
 
 	liveconf, err := config_live.NewConfigLive(jetstreamContext)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create liveconf")
+		log.Fatal().Err(err).Msg("failed to create ConfigLive")
 	}
-	go liveconf.SubscribeConfigUpdate()
+	go liveconf.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 
-	raftActor := raft.NewRaftActor(jetstreamContext)
+	raftActor, err := raft.NewRaftActor(jetstreamContext)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create raftActor")
+	}
 	go raftActor.Run()
 
 	// ---------------------------------------------------------------------------
-	// Example on how to send pubsub config change to all nodes
-	// If RaftNode is not created, it will create a new RaftNode and participates in elections
+	// Example on how to load config on boot from KV store
 
-	raftInternalConfig := config_internal.ConfigRaft{
-		LogPath:     *logPath,
-		ClusterName: *clusterName,
-		ClusterSize: *clusterSize,
-		NatsAddr:    *natsAddr,
-	}
-	raftInternalConfigJsonBytes, err := raftInternalConfig.ToJSONBytes()
+	err = raftActor.OnBootLoad()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create raft node config")
+		log.Fatal().Err(err).Msg("failed to load raft config stored in the KV store")
 	}
-	err = liveconf.Publish(raftInternalConfig.GetConfigKey(), raftInternalConfigJsonBytes)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to publish raft node config")
-	}
-
-	time.Sleep(10 * time.Second)
-
-	// ---------------------------------------------------------------------------
-	// Example on how to send pubsub config again to change to all nodes
-	// If RaftNode is not created, it will create a new RaftNode and participates in elections
-
-	raftInternalConfig = config_internal.ConfigRaft{
-		LogPath:     *logPath,
-		ClusterName: *clusterName,
-		ClusterSize: 5, // from 3
-		NatsAddr:    *natsAddr,
-	}
-	raftInternalConfigJsonBytes, err = raftInternalConfig.ToJSONBytes()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create raft node config again")
-	}
-	err = liveconf.Publish(raftInternalConfig.GetConfigKey(), raftInternalConfigJsonBytes)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to publish raft node config again")
-	}
-	log.Info().Err(err).Msg("Publish raft node config again")
 
 	select {}
 }
