@@ -60,5 +60,3 @@ func (configkv *ConfigKV) GetConfigBytes(key string) ([]byte, error) {
 
 	return entry.Value(), nil
 }
-
-// TODO: HTTP functionalities to expose KV CRUD

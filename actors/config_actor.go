@@ -41,7 +41,7 @@ func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error
 
 type ConfigActor struct {
 	jc         nats.JetStreamContext
-	configkv   configkv.ConfigKV
+	ConfigKV   *configkv.ConfigKV
 	updateChan chan *nats.Msg
 }
 
@@ -51,12 +51,12 @@ func (configactor *ConfigActor) setupConfigKVStore() error {
 		configActorLogger.Error().Err(err).Msg("Failed to setup KV store")
 		return err
 	}
-	configactor.configkv = *confkv
+	configactor.ConfigKV = confkv
 	return nil
 }
 
 func (configactor *ConfigActor) kv() nats.KeyValue {
-	return configactor.configkv.KV
+	return configactor.ConfigKV.KV
 }
 
 func (configactor *ConfigActor) setupJetStreamStream() error {

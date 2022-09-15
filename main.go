@@ -2,13 +2,17 @@ package main
 
 import (
 	"flag"
+	"net/http"
 	"os"
 
+	"github.com/go-chi/chi/middleware"
+	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/actors"
+	"github.com/ez-framework/ez-framework/configkv"
 )
 
 func init() {
@@ -38,11 +42,11 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
-	liveconf, err := actors.NewConfigActor(jetstreamContext)
+	configActor, err := actors.NewConfigActor(jetstreamContext)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
-	go liveconf.Run()
+	go configActor.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
@@ -61,5 +65,12 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load raft config stored in the KV store")
 	}
 
-	select {}
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("welcome"))
+	})
+	r.Method("GET", "/api/admin/kv", configkv.NewConfigKVGetAll(configActor.ConfigKV))
+	http.ListenAndServe(":3000", r)
 }

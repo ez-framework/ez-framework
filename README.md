@@ -23,7 +23,7 @@ It can:
 
 5. Config: Easy way to update config and password via key-value store and pubsub to update cache.
 
-  * Need HTTP interface to view config content and to update config. Maybe inside config_actor.go
+  * Need HTTP interface to view config content and to update config. [POC DONE]
 
 6. Config: Easy way to receive config update through public websocket endpoint.
 
