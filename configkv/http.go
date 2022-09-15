@@ -8,25 +8,26 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-func NewConfigKVGetAll(configkv *ConfigKV) *ConfigKVGetAll {
-	return &ConfigKVGetAll{configkv: configkv}
+func NewConfigKVHTTPGetAll(configkv *ConfigKV) *ConfigKVHTTPGetAll {
+	return &ConfigKVHTTPGetAll{configkv: configkv}
 }
 
-type ConfigKVGetAll struct {
+type ConfigKVHTTPGetAll struct {
 	configkv *ConfigKV
 }
 
-func (handler *ConfigKVGetAll) kv() nats.KeyValue {
+func (handler *ConfigKVHTTPGetAll) kv() nats.KeyValue {
 	return handler.configkv.KV
 }
 
-func (handler *ConfigKVGetAll) renderJSONError(w http.ResponseWriter, r *http.Request, err error) {
+func (handler *ConfigKVHTTPGetAll) renderJSONError(w http.ResponseWriter, r *http.Request, err error) {
 	content := make(map[string]error)
 	content["error"] = err
+	w.WriteHeader(500)
 	render.JSON(w, r, content)
 }
 
-func (handler *ConfigKVGetAll) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	keys, err := handler.kv().Keys()
 	if err != nil {
 		configKVLogger.Error().Err(err).Msg("Failed to render KV content")

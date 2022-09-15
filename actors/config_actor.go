@@ -2,9 +2,14 @@ package actors
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/go-chi/render"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -78,6 +83,50 @@ func (configactor *ConfigActor) setupJetStreamStream() error {
 		}
 	}
 	return nil
+}
+
+func (configactor *ConfigActor) renderJSONError(w http.ResponseWriter, r *http.Request, err error, code int) {
+	content := make(map[string]error)
+	content["error"] = err
+	w.WriteHeader(code)
+	render.JSON(w, r, content)
+}
+
+// ServeHTTP supports publishing via HTTP
+func (configactor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	headerContentTtype := r.Header.Get("Content-Type")
+	if headerContentTtype != "application/json" {
+		configactor.renderJSONError(w, r, errors.New("Content-Type is not application/json"), http.StatusUnsupportedMediaType)
+		return
+	}
+
+	content := make(map[string]interface{})
+
+	err := json.NewDecoder(r.Body).Decode(&content)
+	if err != nil {
+		configactor.renderJSONError(w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	for key, value := range content {
+		if !strings.HasPrefix(key, config_internal.JetStreamStreamName+".") {
+			key = config_internal.JetStreamStreamName + "." + key
+		}
+
+		valueJSONBytes, err := json.Marshal(value)
+		if err != nil {
+			configactor.renderJSONError(w, r, err, http.StatusInternalServerError)
+			return
+		}
+
+		err = configactor.Publish(key, valueJSONBytes)
+		if err != nil {
+			configactor.renderJSONError(w, r, err, http.StatusInternalServerError)
+			return
+		}
+
+		w.Write([]byte(`{"status":"success"}`))
+	}
 }
 
 // Publish a new config by passing it into JetStream with configKey identifier

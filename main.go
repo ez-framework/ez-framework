@@ -71,6 +71,8 @@ func main() {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("welcome"))
 	})
-	r.Method("GET", "/api/admin/kv", configkv.NewConfigKVGetAll(configActor.ConfigKV))
+	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(configActor.ConfigKV))
+	r.Method("POST", "/api/admin/configkv", configActor)
+
 	http.ListenAndServe(":3000", r)
 }
