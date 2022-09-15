@@ -18,7 +18,7 @@ func NewRaftActor(jetstreamContext nats.JetStreamContext) (*RaftActor, error) {
 		configKey:  config_internal.ConfigRaftKey,
 	}
 
-	err := ra.setupKVStore()
+	err := ra.setupConfigKVStore()
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ type RaftActor struct {
 	raftNode   *raft.Raft
 }
 
-func (ra *RaftActor) setupKVStore() error {
+func (ra *RaftActor) setupConfigKVStore() error {
 	kv, err := ra.jc.KeyValue(config_internal.KVBucketName)
 	if err == nil {
 		ra.kv = kv

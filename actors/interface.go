@@ -6,6 +6,6 @@ type IJetStreamActor interface {
 	Run()
 	Publish(string, []byte) error
 
-	setupKVStore() error
+	setupConfigKVStore() error
 	retrySubscribing(string) *nats.Subscription
 }
