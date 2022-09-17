@@ -52,19 +52,19 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 
-	raftActor, err := actors.NewRaftActor(jetstreamContext)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create raftActor")
-	}
-	go raftActor.Run()
+	// raftActor, err := actors.NewRaftActor(jetstreamContext)
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("failed to create raftActor")
+	// }
+	// go raftActor.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store
 
-	err = raftActor.OnBootLoad()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load raft config stored in the KV store")
-	}
+	// err = raftActor.OnBootLoad()
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("failed to load raft config stored in the KV store")
+	// }
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)

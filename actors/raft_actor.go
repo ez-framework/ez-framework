@@ -84,7 +84,6 @@ func (ra *RaftActor) Run() {
 
 		configBytes := msg.Data
 
-		infoLogger.Bytes("configBytes", configBytes).Msg("Received an update message")
 		conf := config_internal.ConfigRaft{}
 
 		err := json.Unmarshal(configBytes, &conf)

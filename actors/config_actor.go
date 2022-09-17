@@ -26,8 +26,8 @@ var configActorLogger = log.With().
 // NewConfigActor is the constructor for *ConfigActor
 func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error) {
 	configactor := &ConfigActor{
-		jc:         jetstreamContext,
-		updateChan: make(chan *nats.Msg),
+		jc:          jetstreamContext,
+		commandChan: make(chan *nats.Msg),
 	}
 
 	err := configactor.setupConfigKVStore()
@@ -44,9 +44,9 @@ func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error
 }
 
 type ConfigActor struct {
-	jc         nats.JetStreamContext
-	ConfigKV   *configkv.ConfigKV
-	updateChan chan *nats.Msg
+	jc          nats.JetStreamContext
+	ConfigKV    *configkv.ConfigKV
+	commandChan chan *nats.Msg
 }
 
 func (configactor *ConfigActor) setupConfigKVStore() error {
@@ -158,7 +158,7 @@ func (configactor *ConfigActor) Publish(configKey string, data []byte) error {
 func (configactor *ConfigActor) retrySubscribing(configKey string) *nats.Subscription {
 	errLogger := configActorLogger.Error().Str("configKey", configKey)
 
-	sub, err := configactor.jc.ChanSubscribe(configKey, configactor.updateChan)
+	sub, err := configactor.jc.ChanSubscribe(configKey, configactor.commandChan)
 	n := 0
 	for err != nil {
 		if n > 20 {
@@ -169,7 +169,7 @@ func (configactor *ConfigActor) retrySubscribing(configKey string) *nats.Subscri
 		errLogger.Err(err).Msg("Failed to subscribe")
 		time.Sleep(time.Duration(n*5) * time.Second)
 
-		sub, err = configactor.jc.ChanSubscribe(configKey, configactor.updateChan)
+		sub, err = configactor.jc.ChanSubscribe(configKey, configactor.commandChan)
 		n += 1
 	}
 
@@ -186,12 +186,14 @@ func (configactor *ConfigActor) Run() {
 
 	// Wait until we get a new message
 	for {
-		msg := <-configactor.updateChan
+		msg := <-configactor.commandChan
 
 		configKey := msg.Subject
 		configBytes := msg.Data
 
 		logger := configActorLogger.With().Str("configKey", configKey).Logger()
+
+		logger.Info().Str("subject", configKey).Bytes("content", configBytes).Msg("Inspecting the content")
 
 		if configactor.kvKeyHasCommand(configKey, "update") {
 			// Get existing config
