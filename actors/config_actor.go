@@ -3,7 +3,6 @@ package actors
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -86,20 +85,30 @@ func (configactor *ConfigActor) setupJetStreamStream() error {
 }
 
 func (configactor *ConfigActor) renderJSONError(w http.ResponseWriter, r *http.Request, err error, code int) {
-	content := make(map[string]error)
-	content["error"] = err
+	configActorLogger.Error().Err(err).Msg("Failed to respond HTTP request")
+
+	content := make(map[string]string)
+	content["error"] = err.Error()
 	w.WriteHeader(code)
 	render.JSON(w, r, content)
 }
 
+// kvKeyWithoutCommand strips the command which is appended at the end
+func (configactor *ConfigActor) kvKeyWithoutCommand(key string) string {
+	keyEndIndex := strings.Index(key, ".command:")
+	return key[0:keyEndIndex]
+}
+
+func (configactor *ConfigActor) kvKeyWithCommand(key, command string) string {
+	return key + ".command:" + command
+}
+
+func (configactor *ConfigActor) kvKeyHasCommand(key, command string) bool {
+	return strings.HasSuffix(key, ".command:"+command)
+}
+
 // ServeHTTP supports publishing via HTTP
 func (configactor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	headerContentTtype := r.Header.Get("Content-Type")
-	if headerContentTtype != "application/json" {
-		configactor.renderJSONError(w, r, errors.New("Content-Type is not application/json"), http.StatusUnsupportedMediaType)
-		return
-	}
-
 	content := make(map[string]interface{})
 
 	err := json.NewDecoder(r.Body).Decode(&content)
@@ -119,12 +128,19 @@ func (configactor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		err = configactor.Publish(key, valueJSONBytes)
+		publishKey := configactor.kvKeyWithCommand(key, "update")
+
+		if r.Method == "DELETE" {
+			publishKey = configactor.kvKeyWithCommand(key, "delete")
+		}
+
+		err = configactor.Publish(publishKey, valueJSONBytes)
 		if err != nil {
 			configactor.renderJSONError(w, r, err, http.StatusInternalServerError)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Write([]byte(`{"status":"success"}`))
 	}
 }
@@ -177,25 +193,30 @@ func (configactor *ConfigActor) Run() {
 
 		logger := configActorLogger.With().Str("configKey", configKey).Logger()
 
-		// Get existing config
-		existingConfig, err := configactor.kv().Get(configKey)
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to get existing config")
-			return
-		}
+		if configactor.kvKeyHasCommand(configKey, "update") {
+			// Get existing config
+			existingConfig, err := configactor.kv().Get(configactor.kvKeyWithoutCommand(configKey))
+			if err == nil {
+				// Don't do anything if new config is the same as existing config
+				existingConfigBytes := existingConfig.Value()
+				if bytes.Equal(existingConfigBytes, configBytes) {
+					return
+				}
+			}
 
-		// Don't do anything if new config is the same as existing config
-		existingConfigBytes := existingConfig.Value()
-		if bytes.Equal(existingConfigBytes, configBytes) {
-			return
-		}
+			// Update config in kv store
+			revision, err := configactor.kv().Put(configactor.kvKeyWithoutCommand(configKey), configBytes)
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to update config in KV store")
+			} else {
+				logger.Info().Int64("revision", int64(revision)).Msg("Updated config in KV store")
+			}
 
-		// Update config in kv store
-		revision, err := configactor.kv().Put(configKey, configBytes)
-		if err != nil {
-			logger.Error().Err(err).Msg("Failed to update config in KV store")
-		} else {
-			logger.Info().Int64("revision", int64(revision)).Msg("Updated config in KV store")
+		} else if configactor.kvKeyHasCommand(configKey, "delete") {
+			err := configactor.kv().Delete(configactor.kvKeyWithoutCommand(configKey))
+			if err != nil {
+				logger.Error().Err(err).Msg("Failed to delete config in KV store")
+			}
 		}
 	}
 }

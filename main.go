@@ -25,6 +25,7 @@ func main() {
 		// clusterName = flag.String("cluster", "cluster", "Cluster name")
 		// clusterSize = flag.Int("size", 3, "Cluster size")
 		natsAddr = flag.String("nats", nats.DefaultURL, "NATS address")
+		httpAddr = flag.String("http", ":3000", "HTTP address")
 	)
 	flag.Parse()
 
@@ -73,6 +74,8 @@ func main() {
 	})
 	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(configActor.ConfigKV))
 	r.Method("POST", "/api/admin/configkv", configActor)
+	r.Method("PUT", "/api/admin/configkv", configActor)
+	r.Method("DELETE", "/api/admin/configkv", configActor)
 
-	http.ListenAndServe(":3000", r)
+	http.ListenAndServe(*httpAddr, r)
 }
