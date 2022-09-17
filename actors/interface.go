@@ -1,11 +1,16 @@
 package actors
 
-import "github.com/nats-io/nats.go"
+import (
+	"net/http"
+
+	"github.com/nats-io/nats.go"
+)
 
 type IJetStreamActor interface {
 	Run()
 	Publish(string, []byte) error
+	ServeHTTP(w http.ResponseWriter, r *http.Request)
 
-	setupConfigKVStore() error
+	kv() nats.KeyValue
 	retrySubscribing(string) *nats.Subscription
 }

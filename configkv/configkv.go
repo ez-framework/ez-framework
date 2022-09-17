@@ -1,23 +1,15 @@
 package configkv
 
 import (
-	"os"
-
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
-	"github.com/ez-framework/ez-framework/config_internal"
 )
-
-var configKVLogger = log.With().
-	Str("KVBucket", config_internal.KVBucketName).
-	Logger().Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 // NewConfigKV is the constructor for *ConfigKV
 func NewConfigKV(jetstreamContext nats.JetStreamContext) (*ConfigKV, error) {
 	configkv := &ConfigKV{
-		jetstreamctx: jetstreamContext,
+		jc:         jetstreamContext,
+		bucketName: "ez-configkv",
 	}
 
 	err := configkv.setupConfigKVStore()
@@ -29,24 +21,25 @@ func NewConfigKV(jetstreamContext nats.JetStreamContext) (*ConfigKV, error) {
 }
 
 type ConfigKV struct {
-	jetstreamctx nats.JetStreamContext
-	KV           nats.KeyValue
+	jc         nats.JetStreamContext
+	bucketName string
+	KV         nats.KeyValue
 }
 
 func (configkv *ConfigKV) setupConfigKVStore() error {
-	kv, err := configkv.jetstreamctx.KeyValue(config_internal.KVBucketName)
+	kv, err := configkv.jc.KeyValue(configkv.bucketName)
 	if err == nil {
 		configkv.KV = kv
 		return nil
 	}
 
-	kv, err = configkv.jetstreamctx.CreateKeyValue(&nats.KeyValueConfig{Bucket: config_internal.KVBucketName})
+	kv, err = configkv.jc.CreateKeyValue(&nats.KeyValueConfig{Bucket: configkv.bucketName})
 	if err == nil {
 		configkv.KV = kv
 		return nil
 	}
 
-	configKVLogger.Error().Err(err).Msg("Failed to setup KV store")
+	log.Error().Err(err).Str("bucket.name", configkv.bucketName).Msg("failed to setup KV store")
 	return err
 }
 
@@ -54,7 +47,7 @@ func (configkv *ConfigKV) setupConfigKVStore() error {
 func (configkv *ConfigKV) GetConfigBytes(key string) ([]byte, error) {
 	entry, err := configkv.KV.Get(key)
 	if err != nil {
-		configKVLogger.Error().Err(err).Str("configKey", key).Msg("Failed to get config from KV store")
+		log.Error().Err(err).Str("bucket.name", configkv.bucketName).Str("config.key", key).Msg("failed to get config from KV store")
 		return nil, err
 	}
 

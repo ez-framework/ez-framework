@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/render"
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog/log"
 )
 
 func NewConfigKVHTTPGetAll(configkv *ConfigKV) *ConfigKVHTTPGetAll {
@@ -30,7 +31,7 @@ func (handler *ConfigKVHTTPGetAll) renderJSONError(w http.ResponseWriter, r *htt
 func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	keys, err := handler.kv().Keys()
 	if err != nil {
-		configKVLogger.Error().Err(err).Msg("Failed to render KV content")
+		log.Error().Err(err).Str("bucket.name", handler.configkv.bucketName).Msg("failed to render KV content")
 		handler.renderJSONError(w, r, err)
 		return
 	}
@@ -40,7 +41,6 @@ func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	for _, key := range keys {
 		configBytes, err := handler.configkv.GetConfigBytes(key)
 		if err != nil {
-			configKVLogger.Error().Err(err).Str("key", key).Msg("Failed to render KV content")
 			handler.renderJSONError(w, r, err)
 		}
 

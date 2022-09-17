@@ -43,10 +43,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
+	confkv, err := configkv.NewConfigKV(jetstreamContext)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to setup KV store")
+	}
+
 	configActor, err := actors.NewConfigActor(jetstreamContext)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
+	configActor.ConfigKV = confkv
 	go configActor.Run()
 
 	// ---------------------------------------------------------------------------
