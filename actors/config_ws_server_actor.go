@@ -12,23 +12,9 @@ import (
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
-type IConfigWSActorPayload interface {
-	GetMethod() string
-	GetBody() map[string]interface{}
-}
-
-type ConfigWSActorPayload struct {
-	Method string
-	Body   map[string]interface{}
-}
-
-func (payload ConfigWSActorPayload) GetMethod() string { return payload.Method }
-
-func (payload ConfigWSActorPayload) GetBody() any { return payload.Body }
-
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  0,
+	WriteBufferSize: 0,
 }
 
 // NewConfigWSServerActor is the constructor for *ConfigWSServerActor

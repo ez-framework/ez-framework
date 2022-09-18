@@ -42,3 +42,17 @@ func (settings ConfigWSClientActorSettings) GetOnPutChannels() [](chan []byte) {
 func (settings ConfigWSClientActorSettings) GetOnDeleteChannels() [](chan []byte) {
 	return settings.OnDeleteChannels
 }
+
+type IConfigWSActorPayload interface {
+	GetMethod() string
+	GetBody() map[string]interface{}
+}
+
+type ConfigWSActorPayload struct {
+	Method string
+	Body   map[string]interface{}
+}
+
+func (payload ConfigWSActorPayload) GetMethod() string { return payload.Method }
+
+func (payload ConfigWSActorPayload) GetBody() any { return payload.Body }

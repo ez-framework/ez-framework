@@ -183,6 +183,13 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Hack: Publish to ez-config-ws
+	err = actor.Publish(actor.keyWithCommand("ez-config-ws", r.Method), originalJSONBytes)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
 	for key, value := range content {
 		valueJSONBytes, err := json.Marshal(value)
 		if err != nil {
