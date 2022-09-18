@@ -37,6 +37,7 @@ func NewConfigActor(globalConfig GlobalConfig) (*ConfigActor, error) {
 	return actor, nil
 }
 
+// ConfigActor listens to changes from JetStream and performs KV operations
 type ConfigActor struct {
 	Actor
 }
@@ -75,6 +76,19 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 		}
 	}
 
+	// Push down config to WS clients.
+	// It is fine if there are no WS client receivers.
+	configBytes, err := json.Marshal(configJSON)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
+		return err
+	}
+
+	actor.Publish("ez-config-ws.command:POST", configBytes)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to push config to WS clients")
+	}
+
 	return nil
 }
 
@@ -86,6 +100,19 @@ func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error
 			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
 			return err
 		}
+	}
+
+	// Push down config to WS clients.
+	// It is fine if there are no WS client receivers.
+	configBytes, err := json.Marshal(configJSON)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
+		return err
+	}
+
+	actor.Publish("ez-config-ws.command:DELETE", configBytes)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to push config to WS clients")
 	}
 
 	return nil

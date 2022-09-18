@@ -64,6 +64,15 @@ func main() {
 	go configActor.Run()
 
 	// ---------------------------------------------------------------------------
+	// Example on how to create ConfigWSActor to push config to WS clients
+
+	configWSActor, err := actors.NewConfigWSActor(globalActorConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
+	}
+	go configWSActor.Run()
+
+	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 
 	raftActor, err := actors.NewRaftActor(globalActorConfig)
@@ -91,8 +100,12 @@ func main() {
 	r.Method("PUT", "/api/admin/configkv", configActor)
 	r.Method("DELETE", "/api/admin/configkv", configActor)
 
+	// Websocket handler to push config to clients.
+	// Useful for IoT/edge services
+	r.Handle("/api/admin/configkv/ws", configWSActor)
+
 	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.RaftNode))
 
-	log.Info().Str("http.addr", *httpAddr).Msg("Running an HTTP server...")
+	log.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)
 }

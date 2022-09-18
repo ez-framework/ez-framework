@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ez-framework/ez-framework/http_helpers"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
+
+	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
+// NewConfigKVHTTPGetAll is constructor for ConfigKVHTTPGetAll
 func NewConfigKVHTTPGetAll(configkv *ConfigKV) *ConfigKVHTTPGetAll {
 	return &ConfigKVHTTPGetAll{configkv: configkv}
 }
 
+// ConfigKVHTTPGetAll is http handler to render all config in JSON format
 type ConfigKVHTTPGetAll struct {
 	configkv *ConfigKV
 }

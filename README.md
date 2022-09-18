@@ -29,16 +29,20 @@ It can:
 
 5. Config: Easy way to update config and password via key-value store and HTTP. [DONE]
 
-6. Config: Easy way to receive config update through public websocket endpoint.
+6. Config & IoT+WS: Easy way to receive config update through public websocket endpoint.
 
-7. IoT+WS: Easy way to scale websocket via pubsub.
+  * Server [Done]
 
-8. IoT+WS: Easy way to send config to IoT edge.
+  * Client
 
-9. Jobs: Easy way to schedule cron via leader functionality.
+7. IoT+WS: Easy way to scale websocket via pubsub. [WONT DO]
 
-10. Jobs: Easy way to have round robin worker via Jetstream as queue.
+  * Give this to customer to implement, they have everything they need including Nats.
 
-11. Security: LDAP ready with concepts of groups.
+8. Jobs: Easy way to schedule cron via leader functionality.
 
-12. Security: Custom username+password via basic auth.
+9. Jobs: Easy way to have round robin worker via Jetstream as queue.
+
+10. Security: LDAP ready with concepts of groups.
+
+11. Security: Custom username+password via basic auth.
