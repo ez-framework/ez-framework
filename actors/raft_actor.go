@@ -12,108 +12,86 @@ import (
 )
 
 func NewRaftActor(jetstreamContext nats.JetStreamContext, confkv *configkv.ConfigKV) (*RaftActor, error) {
-	ra := &RaftActor{
+	name := "ez-raft"
+
+	actor := &RaftActor{
 		Actor: Actor{
 			jc:            jetstreamContext,
-			jetstreamName: "ez-configlive",
-			infoLogger:    log.Info(),
-			errorLogger:   log.Error(),
+			jetstreamName: name,
+			infoLogger:    log.Info().Str("stream.name", name),
+			errorLogger:   log.Error().Str("stream.name", name),
 			ConfigKV:      confkv,
 		},
-		configKey: "ez-configlive.raft-node",
 	}
 
-	return ra, nil
+	err := actor.setupJetStreamStream()
+	if err != nil {
+		return nil, err
+	}
+
+	return actor, nil
 }
 
 type RaftActor struct {
 	Actor
-	configKey string
-	raftNode  *raft.Raft
+	raftNode *raft.Raft
 }
 
-func (ra *RaftActor) jetstreamSubjects() string {
-	return ra.jetstreamName + ".raft-node.>"
+func (actor *RaftActor) jetstreamSubscribeSubjects() string {
+	return actor.jetstreamName + ".>"
 }
 
-func (ra *RaftActor) runNewRaftNode(configBytes []byte) {
-	conf := config_internal.ConfigRaft{}
+func (actor *RaftActor) Run() {
+	actor.infoLogger.
+		Caller().
+		Str("subjects.subscribe", actor.jetstreamSubscribeSubjects()).
+		Msg("subscribing to nats subjects")
 
-	err := json.Unmarshal(configBytes, &conf)
-	if err != nil {
-		ra.errLoggerEvent(err).Msg("failed to unmarshal config")
-		return
-	}
-
-	// If there is an existing raftNode, close it.
-	if ra.raftNode != nil {
-		ra.raftNode.Close()
-	}
-
-	raftNode, err := raft.NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
-	if err != nil {
-		ra.errLoggerEvent(err).Msg("failed to create a raft node")
-	}
-	ra.raftNode = raftNode
-
-	ra.infoLoggerEvent().Msg("RaftActor is running")
-	raftNode.Run()
-}
-
-func (ra *RaftActor) Run() {
-	ra.infoLoggerEvent().Msg("Subscribing to nats subjects")
-
-	ra.jc.Subscribe(ra.jetstreamSubjects(), func(msg *nats.Msg) {
-		ra.infoLoggerEvent().
-			Str("msg.subject", msg.Subject).
-			Bytes("msg.data", msg.Data).Msg("inspecting the content")
-
-		if ra.keyHasCommand(msg.Subject, "POST") || ra.keyHasCommand(msg.Subject, "PUT") {
+	actor.jc.Subscribe(actor.jetstreamSubscribeSubjects(), func(msg *nats.Msg) {
+		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
 			configBytes := msg.Data
 
 			conf := config_internal.ConfigRaft{}
 
 			err := json.Unmarshal(configBytes, &conf)
 			if err != nil {
-				ra.errLoggerEvent(err).Msg("failed to unmarshal config")
+				actor.errorLogger.Err(err).Msg("failed to unmarshal config")
 				return
 			}
 
 			// If there is an existing raftNode, close it.
-			if ra.raftNode != nil {
-				ra.raftNode.Close()
+			if actor.raftNode != nil {
+				actor.raftNode.Close()
 			}
 
 			raftNode, err := raft.NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
 			if err != nil {
-				ra.errLoggerEvent(err).Msg("failed to create a raft node")
+				actor.errorLogger.Err(err).Msg("failed to create a raft node")
 			}
-			ra.raftNode = raftNode
+			actor.raftNode = raftNode
 
-			ra.infoLoggerEvent().Msg("RaftActor is running")
+			actor.infoLogger.Msg("RaftActor is running")
 			raftNode.Run()
 
-		} else if ra.keyHasCommand(msg.Subject, "DELETE") {
-			if ra.raftNode != nil {
-				ra.raftNode.Close()
-				ra.raftNode = nil
+		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+			if actor.raftNode != nil {
+				actor.raftNode.Close()
+				actor.raftNode = nil
 			}
 		}
 	})
 }
 
-func (ra *RaftActor) OnBootLoad() error {
-	configBytes, err := ra.ConfigKV.GetConfigBytes(ra.configKey)
+func (actor *RaftActor) OnBootLoad() error {
+	configBytes, err := actor.ConfigKV.GetConfigBytes(actor.jetstreamName)
 	if err != nil {
-		ra.errLoggerEvent(err).Msg("failed to get config JSON bytes")
+		actor.errorLogger.Err(err).Msg("failed to get config JSON bytes")
 		return err
 	}
 
-	println(string(configBytes))
-
-	err = ra.Publish("ez-configlive.raft-node.command:POST", configBytes)
+	err = actor.Publish("raft-node.command:POST", configBytes)
 	if err != nil {
-		ra.errLoggerEvent(err).Msg("failed to publish")
+		actor.errorLogger.Err(err).Msg("failed to publish")
 	}
 
 	return err

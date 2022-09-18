@@ -48,6 +48,9 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to setup KV store")
 	}
 
+	// ---------------------------------------------------------------------------
+	// Example on how to create ConfigActor
+
 	configActor, err := actors.NewConfigActor(jetstreamContext, confkv)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
@@ -66,10 +69,10 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store
 
-	err = raftActor.OnBootLoad()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load raft config stored in the KV store")
-	}
+	raftActor.OnBootLoad()
+
+	// ---------------------------------------------------------------------------
+	// Example on how to mount the HTTP handlers of each actor
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -77,7 +80,7 @@ func main() {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("welcome"))
 	})
-	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(configActor.ConfigKV))
+	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 	r.Method("POST", "/api/admin/configkv", configActor)
 	r.Method("PUT", "/api/admin/configkv", configActor)
 	r.Method("DELETE", "/api/admin/configkv", configActor)

@@ -64,25 +64,29 @@ type Raft struct {
 
 // handleState handles the changing of Raft node's state
 func (r *Raft) handleState(state graft.State) {
-	logger := log.Info().Str("NatsAddr", r.NatsAddr).Str("ClusterName", r.Name).Str("LogPath", r.LogPath).Int("ExpectedClusterSize", r.ExpectedClusterSize)
+	logger := log.Info().
+		Str("NatsAddr", r.NatsAddr).
+		Str("ClusterName", r.Name).
+		Str("LogPath", r.LogPath).
+		Int("ExpectedClusterSize", r.ExpectedClusterSize)
 
 	switch state {
 	case graft.LEADER:
-		logger.Msg("Becoming leader")
+		logger.Msg("becoming leader")
 
 		if r.OnBecomingLeader != nil {
 			r.OnBecomingLeader(state)
 		}
 
 	case graft.FOLLOWER:
-		logger.Msg("Becoming follower")
+		logger.Msg("becoming follower")
 
 		if r.OnBecomingFollower != nil {
 			r.OnBecomingFollower(state)
 		}
 
 	case graft.CANDIDATE:
-		logger.Msg("Becoming candidate")
+		logger.Msg("becoming candidate")
 
 		if r.OnBecomingCandidate != nil {
 			r.OnBecomingCandidate(state)
@@ -99,7 +103,11 @@ func (r *Raft) handleState(state graft.State) {
 
 // Run initiates the quorum participation of this Raft node
 func (r *Raft) Run() {
-	logger := log.Error().Str("NatsAddr", r.NatsAddr).Str("ClusterName", r.Name).Str("LogPath", r.LogPath).Int("ExpectedClusterSize", r.ExpectedClusterSize)
+	logger := log.Error().
+		Str("NatsAddr", r.NatsAddr).
+		Str("ClusterName", r.Name).
+		Str("LogPath", r.LogPath).
+		Int("ExpectedClusterSize", r.ExpectedClusterSize)
 
 	r.handleState(r.Node.State())
 
