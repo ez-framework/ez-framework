@@ -2,29 +2,31 @@ package actors
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
-	"github.com/ez-framework/ez-framework/config_internal"
-	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/raft"
 )
 
-func NewRaftActor(jetstreamContext nats.JetStreamContext, confkv *configkv.ConfigKV) (*RaftActor, error) {
+func NewRaftActor(globalConfig GlobalConfig) (*RaftActor, error) {
 	name := "ez-raft"
 
 	actor := &RaftActor{
 		Actor: Actor{
-			jc:            jetstreamContext,
+			globalConfig:  globalConfig,
+			jc:            globalConfig.JetStreamContext,
 			jetstreamName: name,
 			infoLogger:    log.Info().Str("stream.name", name),
 			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      confkv,
+			ConfigKV:      globalConfig.ConfigKV,
 		},
 	}
 
-	err := actor.setupJetStreamStream()
+	err := actor.setupJetStreamStream(&nats.StreamConfig{
+		MaxAge: 1 * time.Minute,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +53,7 @@ func (actor *RaftActor) Run() {
 		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
 			configBytes := msg.Data
 
-			conf := config_internal.ConfigRaft{}
+			conf := raft.ConfigRaft{}
 
 			err := json.Unmarshal(configBytes, &conf)
 			if err != nil {
@@ -59,12 +61,17 @@ func (actor *RaftActor) Run() {
 				return
 			}
 
+			// Fill in config from actor's global config
+			if conf.NatsAddr == "" {
+				conf.NatsAddr = actor.globalConfig.NatsAddr
+			}
+
 			// If there is an existing raftNode, close it.
 			if actor.raftNode != nil {
 				actor.raftNode.Close()
 			}
 
-			raftNode, err := raft.NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
+			raftNode, err := raft.NewRaft(conf)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to create a raft node")
 			}
@@ -89,7 +96,7 @@ func (actor *RaftActor) OnBootLoad() error {
 		return err
 	}
 
-	err = actor.Publish("raft-node.command:POST", configBytes)
+	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, "POST"), configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to publish")
 	}

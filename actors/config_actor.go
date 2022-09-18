@@ -4,29 +4,32 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
-	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
 // NewConfigActor is the constructor for *ConfigActor
-func NewConfigActor(jetstreamContext nats.JetStreamContext, confkv *configkv.ConfigKV) (*ConfigActor, error) {
+func NewConfigActor(globalConfig GlobalConfig) (*ConfigActor, error) {
 	name := "ez-config"
 
 	actor := &ConfigActor{
 		Actor: Actor{
-			jc:            jetstreamContext,
+			jc:            globalConfig.JetStreamContext,
 			jetstreamName: name,
 			infoLogger:    log.Info().Str("stream.name", name),
 			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      confkv,
+			ConfigKV:      globalConfig.ConfigKV,
 		},
 	}
 
-	err := actor.setupJetStreamStream()
+	err := actor.setupJetStreamStream(&nats.StreamConfig{
+		MaxAge:    1 * time.Minute,
+		Retention: nats.WorkQueuePolicy,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -144,8 +147,8 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Publish to top level, which is actor.jetstreamName
-	// Example: Publish(ez-configlive.command:POST)
-	//          Payload: {"raft-node": {"LogPath":"./.data/graft.log","ClusterName":"cluster","ClusterSize":3,"NatsAddr":"nats://127.0.0.1:4222"}}
+	// Example: Publish(ez-config.command:POST)
+	//          Payload: {"ez-raft": {"LogPath":"./.data/graft.log","Name":"cluster","Size":3,"NatsAddr":"nats://127.0.0.1:4222"}}
 	// The config will be saved in ConfigKV store.
 	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, r.Method), originalJSONBytes)
 	if err != nil {
@@ -161,10 +164,7 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 2. Publish to the watchers
-		println(key)
-		println(actor.keyWithCommand(key, r.Method))
-		println(string(valueJSONBytes))
-
+		// Example: Publish(ez-raft.command:POST)
 		err = actor.Publish(actor.keyWithCommand(key, r.Method), valueJSONBytes)
 		if err != nil {
 			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)

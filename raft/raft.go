@@ -6,27 +6,34 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type ConfigRaft struct {
+	LogPath  string
+	Name     string
+	Size     int
+	NatsAddr string
+}
+
 // NewRaft creates a new Raft node
-func NewRaft(name, logPath string, expectedClusterSize int, natsAddr string) (*Raft, error) {
-	if expectedClusterSize == 0 {
-		expectedClusterSize = 3
+func NewRaft(conf ConfigRaft) (*Raft, error) {
+	if conf.Size == 0 {
+		conf.Size = 3
 	}
-	if natsAddr == "" {
-		natsAddr = nats.DefaultURL
+	if conf.NatsAddr == "" {
+		conf.NatsAddr = nats.DefaultURL
 	}
 
 	r := &Raft{
-		Name:                name,
-		LogPath:             logPath,
-		ExpectedClusterSize: expectedClusterSize,
-		NatsAddr:            natsAddr,
+		Name:                conf.Name,
+		LogPath:             conf.LogPath,
+		ExpectedClusterSize: conf.Size,
+		NatsAddr:            conf.NatsAddr,
 	}
 
 	r.ErrChan = make(chan error)
 	r.StateChangeChan = make(chan graft.StateChange)
 
 	natsOptions := &nats.DefaultOptions
-	natsOptions.Url = natsAddr
+	natsOptions.Url = conf.NatsAddr
 
 	rpc, err := graft.NewNatsRpc(natsOptions)
 	if err != nil {
@@ -34,7 +41,7 @@ func NewRaft(name, logPath string, expectedClusterSize int, natsAddr string) (*R
 	}
 
 	handler := graft.NewChanHandler(r.StateChangeChan, r.ErrChan)
-	r.clusterInfo = graft.ClusterInfo{Name: name, Size: expectedClusterSize}
+	r.clusterInfo = graft.ClusterInfo{Name: conf.Name, Size: conf.Size}
 
 	r.Node, err = graft.New(r.clusterInfo, handler, rpc, r.LogPath)
 	if err != nil {

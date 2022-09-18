@@ -6,6 +6,12 @@
 docker compose up
 ```
 
+## Misc
+
+```
+curl -d '{"ez-raft": {"LogPath":"./.data/graft.log","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
+```
+
 ## Notes 
 
 The only dependency is Nats.
@@ -21,22 +27,18 @@ It can:
 
 4. Config: Easy way to receive messages on every node via pubsub. [DONE]
 
-5. Config: Easy way to update config and password via key-value store and pubsub to update cache.
-
-  * Need HTTP interface to view config content and to update config. [POC DONE]
+5. Config: Easy way to update config and password via key-value store and HTTP. [DONE]
 
 6. Config: Easy way to receive config update through public websocket endpoint.
 
-7. Config: in memory cache.
+7. IoT+WS: Easy way to scale websocket via pubsub.
 
-8. IoT+WS: Easy way to scale websocket via pubsub.
+8. IoT+WS: Easy way to send config to IoT edge.
 
-9. IoT+WS: Easy way to send config to IoT edge.
+9. Jobs: Easy way to schedule cron via leader functionality.
 
-10. Jobs: Easy way to schedule cron via leader functionality.
+10. Jobs: Easy way to have round robin worker via Jetstream as queue.
 
-11. Jobs: Easy way to have round robin worker via Jetstream as queue.
+11. Security: LDAP ready with concepts of groups.
 
-12. Security: LDAP ready with concepts of groups.
-
-13. Security: Custom username+password via basic auth.
+12. Security: Custom username+password via basic auth.

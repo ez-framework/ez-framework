@@ -10,6 +10,7 @@ import (
 )
 
 type Actor struct {
+	globalConfig  GlobalConfig
 	jc            nats.JetStreamContext
 	jetstreamName string
 	ConfigKV      *configkv.ConfigKV
@@ -17,17 +18,15 @@ type Actor struct {
 	errorLogger   *zerolog.Event
 }
 
-func (actor *Actor) setupJetStreamStream() error {
+func (actor *Actor) setupJetStreamStream(streamConfig *nats.StreamConfig) error {
 	actor.infoLogger.
 		Str("stream.name", actor.jetstreamName).
 		Msg("about to setup a new stream")
 
-	_, err := actor.jc.AddStream(&nats.StreamConfig{
-		Name: actor.jetstreamName,
-		Subjects: []string{
-			actor.jetstreamName + ".>",
-		},
-	})
+	streamConfig.Name = actor.jetstreamName
+	streamConfig.Subjects = append(streamConfig.Subjects, actor.jetstreamName+".>")
+
+	_, err := actor.jc.AddStream(streamConfig)
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Str("stream.name", actor.jetstreamName).

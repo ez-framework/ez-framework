@@ -21,9 +21,6 @@ func init() {
 
 func main() {
 	var (
-		// logPath     = flag.String("path", "./.data/graft.log", "Raft log path")
-		// clusterName = flag.String("cluster", "cluster", "Cluster name")
-		// clusterSize = flag.Int("size", 3, "Cluster size")
 		natsAddr = flag.String("nats", nats.DefaultURL, "NATS address")
 		httpAddr = flag.String("http", ":3000", "HTTP address")
 	)
@@ -48,10 +45,18 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to setup KV store")
 	}
 
+	globalActorConfig := actors.GlobalConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+	}
+
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigActor
 
-	configActor, err := actors.NewConfigActor(jetstreamContext, confkv)
+	configActor, err := actors.NewConfigActor(globalActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
@@ -60,7 +65,7 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 
-	raftActor, err := actors.NewRaftActor(jetstreamContext, confkv)
+	raftActor, err := actors.NewRaftActor(globalActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
 	}
@@ -85,5 +90,6 @@ func main() {
 	r.Method("PUT", "/api/admin/configkv", configActor)
 	r.Method("DELETE", "/api/admin/configkv", configActor)
 
+	log.Info().Str("http.addr", *httpAddr).Msg("Running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)
 }
