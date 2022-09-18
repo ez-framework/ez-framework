@@ -31,11 +31,11 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// NewConfigWSActor is the constructor for *ConfigWSActor
-func NewConfigWSActor(globalConfig GlobalConfig) (*ConfigWSActor, error) {
+// NewConfigWSServerActor is the constructor for *ConfigWSServerActor
+func NewConfigWSServerActor(globalConfig GlobalConfig) (*ConfigWSServerActor, error) {
 	name := "ez-config-ws"
 
-	actor := &ConfigWSActor{
+	actor := &ConfigWSServerActor{
 		Actor: Actor{
 			jc:            globalConfig.JetStreamContext,
 			jetstreamName: name,
@@ -57,18 +57,18 @@ func NewConfigWSActor(globalConfig GlobalConfig) (*ConfigWSActor, error) {
 	return actor, nil
 }
 
-// ConfigWSActor listens to changes and push all config to WS clients
-type ConfigWSActor struct {
+// ConfigWSServerActor listens to changes and push all config to WS clients
+type ConfigWSServerActor struct {
 	Actor
 	configReceiverChan chan []byte
 }
 
-func (actor *ConfigWSActor) jetstreamSubscribeSubjects() string {
+func (actor *ConfigWSServerActor) jetstreamSubscribeSubjects() string {
 	return actor.jetstreamName + ".>"
 }
 
 // Run listens to config changes and update the storage
-func (actor *ConfigWSActor) Run() {
+func (actor *ConfigWSServerActor) Run() {
 	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
 
 	actor.jc.QueueSubscribe(actor.jetstreamSubscribeSubjects(), "workers", func(msg *nats.Msg) {
@@ -108,7 +108,7 @@ func (actor *ConfigWSActor) Run() {
 
 // ServeHTTP is a websocket HTTTP handler.
 // It pushes all config to websocket clients.
-func (actor *ConfigWSActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (actor *ConfigWSServerActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)

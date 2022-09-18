@@ -41,11 +41,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
+	// ---------------------------------------------------------------------------
+	// Example on how to create KV store for configuration
+
 	confkv, err := configkv.NewConfigKV(jetstreamContext)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to setup KV store")
 	}
 
+	// ---------------------------------------------------------------------------
+	// common configuration for all actors
 	globalActorConfig := actors.GlobalConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
@@ -66,7 +71,7 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigWSActor to push config to WS clients
 
-	configWSActor, err := actors.NewConfigWSActor(globalActorConfig)
+	configWSActor, err := actors.NewConfigWSServerActor(globalActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
 	}
@@ -96,6 +101,9 @@ func main() {
 		w.Write([]byte("welcome"))
 	})
 	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
+
+	// As a common design, let the actor handles mutable HTTP methods
+	// and leave the GET methods to the underlying struct.
 	r.Method("POST", "/api/admin/configkv", configActor)
 	r.Method("PUT", "/api/admin/configkv", configActor)
 	r.Method("DELETE", "/api/admin/configkv", configActor)
