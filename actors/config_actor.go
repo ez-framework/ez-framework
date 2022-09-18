@@ -7,19 +7,22 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/ez-framework/ez-framework/configkv"
 )
 
 var configActorLogger = log.With().
 	Logger().Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 // NewConfigActor is the constructor for *ConfigActor
-func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error) {
+func NewConfigActor(jetstreamContext nats.JetStreamContext, confkv *configkv.ConfigKV) (*ConfigActor, error) {
 	configactor := &ConfigActor{
 		Actor: Actor{
 			jc:            jetstreamContext,
 			jetstreamName: "ez-configlive",
 			infoLogger:    configActorLogger.Info(),
 			errorLogger:   configActorLogger.Error(),
+			ConfigKV:      confkv,
 		},
 	}
 

@@ -9,8 +9,7 @@ import (
 type IJetStreamActor interface {
 	Run()
 	Publish(string, []byte) error
-	ServeHTTP(w http.ResponseWriter, r *http.Request)
+	ServeHTTP(http.ResponseWriter, *http.Request)
 
 	kv() nats.KeyValue
-	retrySubscribing(string) *nats.Subscription
 }

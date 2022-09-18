@@ -47,7 +47,10 @@ func (configkv *ConfigKV) setupConfigKVStore() error {
 func (configkv *ConfigKV) GetConfigBytes(key string) ([]byte, error) {
 	entry, err := configkv.KV.Get(key)
 	if err != nil {
-		log.Error().Err(err).Str("bucket.name", configkv.bucketName).Str("config.key", key).Msg("failed to get config from KV store")
+		log.Error().Err(err).
+			Str("bucket.name", configkv.bucketName).
+			Str("config.key", key).
+			Msg("failed to get config from KV store")
 		return nil, err
 	}
 

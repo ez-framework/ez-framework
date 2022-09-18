@@ -7,16 +7,18 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/config_internal"
+	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/raft"
 )
 
-func NewRaftActor(jetstreamContext nats.JetStreamContext) (*RaftActor, error) {
+func NewRaftActor(jetstreamContext nats.JetStreamContext, confkv *configkv.ConfigKV) (*RaftActor, error) {
 	ra := &RaftActor{
 		Actor: Actor{
 			jc:            jetstreamContext,
-			jetstreamName: "ez-raft",
+			jetstreamName: "ez-configlive",
 			infoLogger:    log.Info(),
 			errorLogger:   log.Error(),
+			ConfigKV:      confkv,
 		},
 		configKey: "ez-configlive.raft-node",
 	}
@@ -28,6 +30,34 @@ type RaftActor struct {
 	Actor
 	configKey string
 	raftNode  *raft.Raft
+}
+
+func (ra *RaftActor) jetstreamSubjects() string {
+	return ra.jetstreamName + ".raft-node.>"
+}
+
+func (ra *RaftActor) runNewRaftNode(configBytes []byte) {
+	conf := config_internal.ConfigRaft{}
+
+	err := json.Unmarshal(configBytes, &conf)
+	if err != nil {
+		ra.errLoggerEvent(err).Msg("failed to unmarshal config")
+		return
+	}
+
+	// If there is an existing raftNode, close it.
+	if ra.raftNode != nil {
+		ra.raftNode.Close()
+	}
+
+	raftNode, err := raft.NewRaft(conf.ClusterName, conf.LogPath, conf.ClusterSize, conf.NatsAddr)
+	if err != nil {
+		ra.errLoggerEvent(err).Msg("failed to create a raft node")
+	}
+	ra.raftNode = raftNode
+
+	ra.infoLoggerEvent().Msg("RaftActor is running")
+	raftNode.Run()
 }
 
 func (ra *RaftActor) Run() {
@@ -70,4 +100,21 @@ func (ra *RaftActor) Run() {
 			}
 		}
 	})
+}
+
+func (ra *RaftActor) OnBootLoad() error {
+	configBytes, err := ra.ConfigKV.GetConfigBytes(ra.configKey)
+	if err != nil {
+		ra.errLoggerEvent(err).Msg("failed to get config JSON bytes")
+		return err
+	}
+
+	println(string(configBytes))
+
+	err = ra.Publish("ez-configlive.raft-node.command:POST", configBytes)
+	if err != nil {
+		ra.errLoggerEvent(err).Msg("failed to publish")
+	}
+
+	return err
 }
