@@ -13,6 +13,7 @@ import (
 
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
+	"github.com/ez-framework/ez-framework/raft"
 )
 
 func init() {
@@ -89,6 +90,8 @@ func main() {
 	r.Method("POST", "/api/admin/configkv", configActor)
 	r.Method("PUT", "/api/admin/configkv", configActor)
 	r.Method("DELETE", "/api/admin/configkv", configActor)
+
+	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.RaftNode))
 
 	log.Info().Str("http.addr", *httpAddr).Msg("Running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)

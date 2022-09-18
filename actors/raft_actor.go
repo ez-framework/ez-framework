@@ -36,7 +36,7 @@ func NewRaftActor(globalConfig GlobalConfig) (*RaftActor, error) {
 
 type RaftActor struct {
 	Actor
-	raftNode *raft.Raft
+	RaftNode *raft.Raft
 }
 
 func (actor *RaftActor) jetstreamSubscribeSubjects() string {
@@ -69,24 +69,24 @@ func (actor *RaftActor) Run() {
 				conf.HTTPAddr = actor.globalConfig.HTTPAddr
 			}
 
-			// If there is an existing raftNode, close it.
-			if actor.raftNode != nil {
-				actor.raftNode.Close()
+			// If there is an existing RaftNode, close it.
+			if actor.RaftNode != nil {
+				actor.RaftNode.Close()
 			}
 
 			raftNode, err := raft.NewRaft(conf)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to create a raft node")
+				return
 			}
-			actor.raftNode = raftNode
+			actor.RaftNode = raftNode
 
 			actor.infoLogger.Msg("RaftActor is running")
-			raftNode.Run()
+			actor.RaftNode.Run()
 
 		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			if actor.raftNode != nil {
-				actor.raftNode.Close()
-				actor.raftNode = nil
+			if actor.RaftNode != nil {
+				actor.RaftNode.Close()
 			}
 		}
 	})

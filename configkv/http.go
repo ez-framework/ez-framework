@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/go-chi/render"
+	"github.com/ez-framework/ez-framework/http_helpers"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
@@ -21,18 +21,11 @@ func (handler *ConfigKVHTTPGetAll) kv() nats.KeyValue {
 	return handler.configkv.KV
 }
 
-func (handler *ConfigKVHTTPGetAll) renderJSONError(w http.ResponseWriter, r *http.Request, err error) {
-	content := make(map[string]error)
-	content["error"] = err
-	w.WriteHeader(500)
-	render.JSON(w, r, content)
-}
-
 func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	keys, err := handler.kv().Keys()
 	if err != nil {
 		log.Error().Err(err).Str("bucket.name", handler.configkv.bucketName).Msg("failed to render KV content")
-		handler.renderJSONError(w, r, err)
+		http_helpers.RenderJSONError(log.Error(), w, r, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -41,7 +34,7 @@ func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	for _, key := range keys {
 		configBytes, err := handler.configkv.GetConfigBytes(key)
 		if err != nil {
-			handler.renderJSONError(w, r, err)
+			http_helpers.RenderJSONError(log.Error(), w, r, err, http.StatusInternalServerError)
 		}
 
 		content += fmt.Sprintf(`"%s": `, key) + string(configBytes)
