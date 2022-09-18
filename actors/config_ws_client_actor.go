@@ -7,32 +7,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type IConfigWSClientActorSettings interface {
-	GetWSURL() string
-	SetOnPutChannels([](chan []byte))
-	SetOnDeleteChannels([](chan []byte))
-	GetOnPutChannels() [](chan []byte)
-	GetOnDeleteChannels() [](chan []byte)
-}
-
-type ConfigWSClientActorSettings struct {
-	WSURL            string
-	OnPutChannels    [](chan []byte)
-	OnDeleteChannels [](chan []byte)
-}
-
-func (settings ConfigWSClientActorSettings) GetWSURL() string {
-	return settings.WSURL
-}
-
-func (settings ConfigWSClientActorSettings) GetOnPutChannels() [](chan []byte) {
-	return settings.OnPutChannels
-}
-
-func (settings ConfigWSClientActorSettings) GetOnDeleteChannels() [](chan []byte) {
-	return settings.OnDeleteChannels
-}
-
 // NewConfigWSClientActor is the constructor for *ConfigWSClientActor
 func NewConfigWSClientActor(settings IConfigWSClientActorSettings) (*ConfigWSClientActor, error) {
 	actor := &ConfigWSClientActor{
@@ -41,6 +15,7 @@ func NewConfigWSClientActor(settings IConfigWSClientActorSettings) (*ConfigWSCli
 			errorLogger: log.Error(),
 		},
 		settings: settings,
+		kv:       settings.GetKV(),
 	}
 
 	// TODO: Always try to reconnect
@@ -58,6 +33,7 @@ type ConfigWSClientActor struct {
 	Actor
 	settings IConfigWSClientActorSettings
 	wsConn   *websocket.Conn
+	kv       IPutDelete
 }
 
 // Run listens to config changes and update the storage
@@ -87,13 +63,32 @@ func (actor *ConfigWSClientActor) Run() {
 
 		switch configWithEnvelope.Method {
 		case "POST", "PUT":
-			println("saving the config")
+			for key, value := range configWithEnvelope.Body {
+				valueBytes, err := json.Marshal(value)
+				if err != nil {
+					actor.errorLogger.Err(err).Msg("failed to marshal config content before saving")
+					continue
+				}
+
+				err = actor.kv.Put(key, valueBytes)
+				if err != nil {
+					actor.errorLogger.Err(err).Msg("failed to save config content")
+					continue
+				}
+			}
 
 			for _, c := range actor.settings.GetOnPutChannels() {
 				c <- configBytes
 			}
+
 		case "DELETE":
-			println("delete the config")
+			for key, _ := range configWithEnvelope.Body {
+				err = actor.kv.Delete(key)
+				if err != nil {
+					actor.errorLogger.Err(err).Msg("failed to delete config content")
+					continue
+				}
+			}
 
 			for _, c := range actor.settings.GetOnDeleteChannels() {
 				c <- configBytes

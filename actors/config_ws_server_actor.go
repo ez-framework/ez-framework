@@ -14,12 +14,12 @@ import (
 
 type IConfigWSActorPayload interface {
 	GetMethod() string
-	GetBody() any
+	GetBody() map[string]interface{}
 }
 
 type ConfigWSActorPayload struct {
 	Method string
-	Body   any
+	Body   map[string]interface{}
 }
 
 func (payload ConfigWSActorPayload) GetMethod() string { return payload.Method }
