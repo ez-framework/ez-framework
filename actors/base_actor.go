@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -16,7 +15,6 @@ import (
 type Actor struct {
 	jc            nats.JetStreamContext
 	jetstreamName string
-	commandChan   chan *nats.Msg
 	ConfigKV      *configkv.ConfigKV
 	infoLogger    *zerolog.Event
 	errorLogger   *zerolog.Event
@@ -37,30 +35,18 @@ func (actor *Actor) errLoggerEvent(err error) *zerolog.Event {
 }
 
 func (actor *Actor) setupJetStreamStream() error {
-	stream, err := actor.jc.StreamInfo(actor.jetstreamName)
+	_, err := actor.jc.AddStream(&nats.StreamConfig{
+		Name:     actor.jetstreamName,
+		Subjects: []string{actor.jetstreamSubjects()},
+	})
 	if err != nil {
-		if err.Error() != "nats: stream not found" {
-			actor.errLoggerEvent(err).
-				Msg("failed when looking up existing JetStream stream")
+		actor.errLoggerEvent(err).
+			Msg("failed to create a new stream")
 
-			return err
-		}
+		return err
 	}
 
-	if stream == nil {
-		_, err = actor.jc.AddStream(&nats.StreamConfig{
-			Name:     actor.jetstreamName,
-			Subjects: []string{actor.jetstreamSubjects()},
-		})
-		if err != nil {
-			actor.errLoggerEvent(err).
-				Msg("failed to create a new stream")
-
-			return err
-		}
-
-		actor.infoLoggerEvent().Msg("created a new stream")
-	}
+	actor.infoLoggerEvent().Msg("created a new stream")
 	return nil
 }
 
@@ -69,7 +55,7 @@ func (configactor *Actor) kv() nats.KeyValue {
 }
 
 func (actor *Actor) jetstreamSubjects() string {
-	return actor.jetstreamName + ".*"
+	return actor.jetstreamName + ".>"
 }
 
 // keyWithoutCommand strips the command which is appended at the end
@@ -130,27 +116,4 @@ func (actor *Actor) Publish(key string, data []byte) error {
 	}
 
 	return err
-}
-
-func (actor *Actor) retrySubscribing(jetstreamKey string) *nats.Subscription {
-	sub, err := actor.jc.ChanSubscribe(jetstreamKey, actor.commandChan)
-	n := 0
-	for err != nil {
-		if n > 20 {
-			n = 0
-		}
-
-		// Log the error and then sleep before subscribing
-		actor.loggerEvent(actor.errorLogger).
-			Err(err).
-			Str("jetstream.key", jetstreamKey).
-			Msg("failed to subscribe")
-
-		time.Sleep(time.Duration(n*5) * time.Second)
-
-		sub, err = actor.jc.ChanSubscribe(jetstreamKey, actor.commandChan)
-		n += 1
-	}
-
-	return sub
 }

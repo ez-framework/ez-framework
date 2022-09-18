@@ -15,7 +15,6 @@ func NewRaftActor(jetstreamContext nats.JetStreamContext) (*RaftActor, error) {
 		Actor: Actor{
 			jc:            jetstreamContext,
 			jetstreamName: "ez-raft",
-			commandChan:   make(chan *nats.Msg),
 			infoLogger:    log.Info(),
 			errorLogger:   log.Error(),
 		},
@@ -32,15 +31,9 @@ type RaftActor struct {
 }
 
 func (ra *RaftActor) Run() {
-	subscription := ra.retrySubscribing(ra.jetstreamSubjects())
-	defer subscription.Unsubscribe()
+	ra.infoLoggerEvent().Msg("Subscribing to nats subjects")
 
-	ra.infoLoggerEvent().Msg("subscribing to nats subjects")
-
-	// Wait until we get a new message
-	for {
-		msg := <-ra.commandChan
-
+	ra.jc.Subscribe(ra.jetstreamSubjects(), func(msg *nats.Msg) {
 		ra.infoLoggerEvent().
 			Str("msg.subject", msg.Subject).
 			Bytes("msg.data", msg.Data).Msg("inspecting the content")
@@ -53,7 +46,7 @@ func (ra *RaftActor) Run() {
 			err := json.Unmarshal(configBytes, &conf)
 			if err != nil {
 				ra.errLoggerEvent(err).Msg("failed to unmarshal config")
-				continue
+				return
 			}
 
 			// If there is an existing raftNode, close it.
@@ -76,5 +69,5 @@ func (ra *RaftActor) Run() {
 				ra.raftNode = nil
 			}
 		}
-	}
+	})
 }

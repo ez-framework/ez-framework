@@ -18,7 +18,6 @@ func NewConfigActor(jetstreamContext nats.JetStreamContext) (*ConfigActor, error
 		Actor: Actor{
 			jc:            jetstreamContext,
 			jetstreamName: "ez-configlive",
-			commandChan:   make(chan *nats.Msg),
 			infoLogger:    configActorLogger.Info(),
 			errorLogger:   configActorLogger.Error(),
 		},
@@ -76,15 +75,9 @@ func (configactor *ConfigActor) deleteHandler(msg *nats.Msg) error {
 
 // Run listens to config changes and update the storage
 func (configactor *ConfigActor) Run() {
-	subscription := configactor.retrySubscribing(configactor.jetstreamSubjects())
-	defer subscription.Unsubscribe()
-
 	configactor.infoLoggerEvent().Msg("Subscribing to nats subjects")
 
-	// Wait until we get a new message
-	for {
-		msg := <-configactor.commandChan
-
+	configactor.jc.Subscribe(configactor.jetstreamSubjects(), func(msg *nats.Msg) {
 		configactor.infoLoggerEvent().
 			Str("msg.subject", msg.Subject).
 			Bytes("msg.data", msg.Data).Msg("Inspecting the content")
@@ -107,5 +100,5 @@ func (configactor *ConfigActor) Run() {
 					Msg("failed to execute deleteHandler inside Run()")
 			}
 		}
-	}
+	})
 }
