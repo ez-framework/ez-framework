@@ -80,7 +80,7 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 
 // deleteHandler will be executed inside Run.
 func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error {
-	for configKey, _ := range configJSON {
+	for configKey := range configJSON {
 		err := actor.kv().Delete(actor.keyWithoutCommand(configKey))
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
@@ -148,7 +148,7 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Publish to top level, which is actor.jetstreamName
 	// Example: Publish(ez-config.command:POST)
-	//          Payload: {"ez-raft": {"LogPath":"./.data/graft.log","Name":"cluster","Size":3,"NatsAddr":"nats://127.0.0.1:4222"}}
+	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3,"NatsAddr":"nats://127.0.0.1:4222"}}
 	// The config will be saved in ConfigKV store.
 	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, r.Method), originalJSONBytes)
 	if err != nil {

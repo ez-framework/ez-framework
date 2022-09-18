@@ -1,16 +1,20 @@
 package raft
 
 import (
+	"path/filepath"
+	"strings"
+
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
 
 type ConfigRaft struct {
-	LogPath  string
+	LogDir   string
 	Name     string
 	Size     int
 	NatsAddr string
+	HTTPAddr string
 }
 
 // NewRaft creates a new Raft node
@@ -24,9 +28,10 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 
 	r := &Raft{
 		Name:                conf.Name,
-		LogPath:             conf.LogPath,
+		LogDir:              conf.LogDir,
 		ExpectedClusterSize: conf.Size,
 		NatsAddr:            conf.NatsAddr,
+		HTTPAddr:            conf.HTTPAddr,
 	}
 
 	r.ErrChan = make(chan error)
@@ -43,7 +48,15 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 	handler := graft.NewChanHandler(r.StateChangeChan, r.ErrChan)
 	r.clusterInfo = graft.ClusterInfo{Name: conf.Name, Size: conf.Size}
 
-	r.Node, err = graft.New(r.clusterInfo, handler, rpc, r.LogPath)
+	// Construct log path
+	logFilename := conf.HTTPAddr
+	if strings.HasPrefix(logFilename, ":") {
+		logFilename = "localhost" + logFilename + ".graft.log"
+	}
+
+	logPath := filepath.Join(r.LogDir, logFilename)
+
+	r.Node, err = graft.New(r.clusterInfo, handler, rpc, logPath)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +67,10 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 // Raft is a structure that represents a Raft  node
 type Raft struct {
 	Name                string
-	LogPath             string
+	LogDir              string
 	ExpectedClusterSize int
 	NatsAddr            string
+	HTTPAddr            string
 
 	ErrChan             chan error
 	StateChangeChan     chan graft.StateChange
@@ -74,7 +88,7 @@ func (r *Raft) handleState(state graft.State) {
 	logger := log.Info().
 		Str("NatsAddr", r.NatsAddr).
 		Str("ClusterName", r.Name).
-		Str("LogPath", r.LogPath).
+		Str("LogDir", r.LogDir).
 		Int("ExpectedClusterSize", r.ExpectedClusterSize)
 
 	switch state {
@@ -113,7 +127,7 @@ func (r *Raft) Run() {
 	logger := log.Error().
 		Str("NatsAddr", r.NatsAddr).
 		Str("ClusterName", r.Name).
-		Str("LogPath", r.LogPath).
+		Str("LogDir", r.LogDir).
 		Int("ExpectedClusterSize", r.ExpectedClusterSize)
 
 	r.handleState(r.Node.State())

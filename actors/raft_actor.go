@@ -65,6 +65,9 @@ func (actor *RaftActor) Run() {
 			if conf.NatsAddr == "" {
 				conf.NatsAddr = actor.globalConfig.NatsAddr
 			}
+			if conf.HTTPAddr == "" {
+				conf.HTTPAddr = actor.globalConfig.HTTPAddr
+			}
 
 			// If there is an existing raftNode, close it.
 			if actor.raftNode != nil {

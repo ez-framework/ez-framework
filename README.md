@@ -9,7 +9,7 @@ docker compose up
 ## Misc
 
 ```
-curl -d '{"ez-raft": {"LogPath":"./.data/graft.log","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
+curl -d '{"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
 ```
 
 ## Notes 
