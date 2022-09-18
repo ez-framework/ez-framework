@@ -16,8 +16,6 @@ type IDelete interface {
 type IConfigWSClientActorSettings interface {
 	GetWSURL() string
 	GetKV() IPutDelete
-	SetOnPutChannels([](chan []byte))
-	SetOnDeleteChannels([](chan []byte))
 	GetOnPutChannels() [](chan []byte)
 	GetOnDeleteChannels() [](chan []byte)
 }
