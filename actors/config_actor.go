@@ -23,6 +23,7 @@ func NewConfigActor(globalConfig GlobalConfig) (*ConfigActor, error) {
 			infoLogger:    log.Info().Str("stream.name", name),
 			errorLogger:   log.Error().Str("stream.name", name),
 			ConfigKV:      globalConfig.ConfigKV,
+			Downstreams:   []string{"ez-config-ws"},
 		},
 	}
 
@@ -48,6 +49,23 @@ func (actor *ConfigActor) jetstreamSubscribeSubjects() string {
 
 // updateHandler will be executed inside Run.
 func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error {
+	// Push config to downstream subscribers.
+	configBytes, err := json.Marshal(configJSON)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
+		return err
+	}
+
+	for _, downstream := range actor.Downstreams {
+		actor.Publish(actor.keyWithCommand(downstream, "POST"), configBytes)
+		if err != nil {
+			actor.errorLogger.Err(err).Str("downstream", downstream).
+				Msg("failed to push config to downstream subscribers")
+		}
+	}
+
+	// ---------------------------------------------------------------------------
+
 	for configKey, value := range configJSON {
 		configBytes, err := json.Marshal(value)
 		if err != nil {
@@ -76,43 +94,34 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 		}
 	}
 
-	// Push down config to WS clients.
-	// It is fine if there are no WS client receivers.
+	return nil
+}
+
+// deleteHandler will be executed inside Run.
+func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error {
+	// Push config to downstream subscribers.
 	configBytes, err := json.Marshal(configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
 		return err
 	}
 
-	actor.Publish("ez-config-ws.command:POST", configBytes)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to push config to WS clients")
+	for _, downstream := range actor.Downstreams {
+		actor.Publish(actor.keyWithCommand(downstream, "DELETE"), configBytes)
+		if err != nil {
+			actor.errorLogger.Err(err).Str("downstream", downstream).
+				Msg("failed to push config to downstream subscribers")
+		}
 	}
 
-	return nil
-}
+	// ---------------------------------------------------------------------------
 
-// deleteHandler will be executed inside Run.
-func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error {
 	for configKey := range configJSON {
 		err := actor.kv().Delete(actor.keyWithoutCommand(configKey))
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
 			return err
 		}
-	}
-
-	// Push down config to WS clients.
-	// It is fine if there are no WS client receivers.
-	configBytes, err := json.Marshal(configJSON)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
-		return err
-	}
-
-	actor.Publish("ez-config-ws.command:DELETE", configBytes)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to push config to WS clients")
 	}
 
 	return nil
@@ -178,13 +187,6 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3,"NatsAddr":"nats://127.0.0.1:4222"}}
 	// The config will be saved in ConfigKV store.
 	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, r.Method), originalJSONBytes)
-	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
-		return
-	}
-
-	// Hack: Publish to ez-config-ws
-	err = actor.Publish(actor.keyWithCommand("ez-config-ws", r.Method), originalJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
 		return

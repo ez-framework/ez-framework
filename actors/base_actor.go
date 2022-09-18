@@ -13,6 +13,7 @@ type Actor struct {
 	globalConfig  GlobalConfig
 	jc            nats.JetStreamContext
 	jetstreamName string
+	Downstreams   []string
 	ConfigKV      *configkv.ConfigKV
 	infoLogger    *zerolog.Event
 	errorLogger   *zerolog.Event
