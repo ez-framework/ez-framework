@@ -38,7 +38,9 @@ type ConfigWSClientActor struct {
 
 // Run listens to config changes and update the storage
 func (actor *ConfigWSClientActor) Run() {
-	actor.infoLogger.Caller().Msg("subscribing to websocket")
+	actor.infoLogger.Caller().
+		Str("ws.url", actor.settings.GetWSURL()).
+		Msg("subscribing to websocket")
 
 	for {
 		_, configWithEnvelopeBytes, err := actor.wsConn.ReadMessage()

@@ -116,6 +116,8 @@ func (actor *ConfigWSServerActor) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	defer conn.Close()
 
+	actor.infoLogger.Caller().Msg("received a websocket connection")
+
 	for {
 		configWithEnvelopeBytes := <-actor.configReceiverChan
 
