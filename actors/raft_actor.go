@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
@@ -36,11 +37,23 @@ func NewRaftActor(globalConfig GlobalConfig) (*RaftActor, error) {
 
 type RaftActor struct {
 	Actor
-	RaftNode *raft.Raft
+	Raft                *raft.Raft
+	OnBecomingLeader    func(state graft.State)
+	OnBecomingFollower  func(state graft.State)
+	OnBecomingCandidate func(state graft.State)
+	OnClosed            func(state graft.State)
 }
 
 func (actor *RaftActor) jetstreamSubscribeSubjects() string {
 	return actor.jetstreamName + ".>"
+}
+
+func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
+	actor.Raft = raftNode
+	actor.Raft.OnBecomingLeader = actor.OnBecomingLeader
+	actor.Raft.OnBecomingFollower = actor.OnBecomingFollower
+	actor.Raft.OnBecomingCandidate = actor.OnBecomingCandidate
+	actor.Raft.OnClosed = actor.OnClosed
 }
 
 func (actor *RaftActor) Run() {
@@ -70,8 +83,8 @@ func (actor *RaftActor) Run() {
 			}
 
 			// If there is an existing RaftNode, close it.
-			if actor.RaftNode != nil {
-				actor.RaftNode.Close()
+			if actor.Raft != nil {
+				actor.Raft.Close()
 			}
 
 			raftNode, err := raft.NewRaft(conf)
@@ -79,14 +92,14 @@ func (actor *RaftActor) Run() {
 				actor.errorLogger.Err(err).Msg("failed to create a raft node")
 				return
 			}
-			actor.RaftNode = raftNode
+			actor.setRaft(raftNode)
 
 			actor.infoLogger.Msg("RaftActor is running")
-			actor.RaftNode.Run()
+			actor.Raft.Run()
 
 		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			if actor.RaftNode != nil {
-				actor.RaftNode.Close()
+			if actor.Raft != nil {
+				actor.Raft.Close()
 			}
 		}
 	})

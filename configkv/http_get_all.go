@@ -3,6 +3,7 @@ package configkv
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
@@ -32,18 +33,20 @@ func (handler *ConfigKVHTTPGetAll) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	content := "{"
+	kvPairs := make([]string, 0)
 
 	for _, key := range keys {
+
 		configBytes, err := handler.configkv.GetConfigBytes(key)
 		if err != nil {
 			http_helpers.RenderJSONError(log.Error(), w, r, err, http.StatusInternalServerError)
+			continue
 		}
 
-		content += fmt.Sprintf(`"%s": `, key) + string(configBytes)
+		kvPairs = append(kvPairs, fmt.Sprintf(`"%s": %s`, key, string(configBytes)))
 	}
 
-	content += "}"
+	content := "{" + strings.Join(kvPairs, ",") + "}"
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Write([]byte(content))

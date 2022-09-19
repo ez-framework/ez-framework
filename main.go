@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -85,7 +86,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
 	}
-	go raftActor.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create cron scheduler as an actor
@@ -94,7 +94,28 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
 	}
-	go cronActor.Run()
+
+	// ---------------------------------------------------------------------------
+	// Example on how to run cron scheduler only when this service is the leader
+	raftActor.OnBecomingLeader = func(state graft.State) {
+		go cronActor.Run()
+	}
+	raftActor.OnBecomingFollower = func(state graft.State) {
+		cronActor.Stop()
+	}
+
+	go raftActor.Run()
+
+	// ---------------------------------------------------------------------------
+	// Example on how to create a generic worker as an actor
+
+	workerActor, err := actors.NewWorkerActor(globalActorConfig, "hello", 2, func(payload []byte) {
+		println("HELLO WORLD!!!")
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create workerActor")
+	}
+	go workerActor.Run()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store
@@ -129,7 +150,7 @@ func main() {
 	r.Method("DELETE", "/api/admin/cron", cronActor)
 
 	// GET method is handled by the underlying Raft struct
-	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.RaftNode))
+	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
 
 	// GET method is handled by the underlying CronCollection struct
 	r.Method("GET", "/api/admin/cron", cron.NewCronCollectionHTTPGet(cronActor.CronCollection))

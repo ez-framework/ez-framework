@@ -26,6 +26,7 @@ func NewCronActor(globalConfig GlobalConfig) (*CronActor, error) {
 			errorLogger:   log.Error().Str("stream.name", name),
 			ConfigKV:      globalConfig.ConfigKV,
 		},
+		CronCollection: cron.NewCronCollection(globalConfig.JetStreamContext),
 	}
 
 	err := actor.setupJetStreamStream(&nats.StreamConfig{
@@ -41,19 +42,31 @@ func NewCronActor(globalConfig GlobalConfig) (*CronActor, error) {
 type CronActor struct {
 	Actor
 	CronCollection *cron.CronCollection
+	subscription   *nats.Subscription
 }
 
+// jetstreamSubscribeSubjects
 func (actor *CronActor) jetstreamSubscribeSubjects() string {
 	return actor.jetstreamName + ".>"
 }
 
+// Stop
+func (actor *CronActor) Stop() error {
+	err := actor.subscription.Unsubscribe()
+	if err == nil {
+		actor.subscription = nil
+	}
+	return err
+}
+
+// Run
 func (actor *CronActor) Run() {
 	actor.infoLogger.
 		Caller().
 		Str("subjects.subscribe", actor.jetstreamSubscribeSubjects()).
 		Msg("subscribing to nats subjects")
 
-	actor.jc.Subscribe(actor.jetstreamSubscribeSubjects(), func(msg *nats.Msg) {
+	sub, err := actor.jc.Subscribe(actor.jetstreamSubscribeSubjects(), func(msg *nats.Msg) {
 		configBytes := msg.Data
 
 		conf := cron.CronConfig{}
@@ -73,6 +86,9 @@ func (actor *CronActor) Run() {
 				return
 			}
 
+			// TODO: We need to check of this instance is the leader
+			actor.CronCollection.Run(conf)
+
 		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
 			actor.CronCollection.Delete(conf)
 
@@ -83,6 +99,10 @@ func (actor *CronActor) Run() {
 			}
 		}
 	})
+
+	if err == nil {
+		actor.subscription = sub
+	}
 }
 
 func (actor *CronActor) OnBootLoad() error {
