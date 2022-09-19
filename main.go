@@ -13,6 +13,7 @@ import (
 
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
+	"github.com/ez-framework/ez-framework/cron"
 	"github.com/ez-framework/ez-framework/raft"
 )
 
@@ -87,9 +88,19 @@ func main() {
 	go raftActor.Run()
 
 	// ---------------------------------------------------------------------------
+	// Example on how to create cron scheduler as an actor
+
+	cronActor, err := actors.NewCronActor(globalActorConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create cronActor")
+	}
+	go cronActor.Run()
+
+	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store
 
 	raftActor.OnBootLoad()
+	cronActor.OnBootLoad()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor
@@ -112,7 +123,16 @@ func main() {
 	// Useful for IoT/edge services
 	r.Handle("/api/admin/configkv/ws", configWSActor)
 
+	// cronActor handles the creation and deletion of cron schedulers
+	r.Method("POST", "/api/admin/cron", cronActor)
+	r.Method("PUT", "/api/admin/cron", cronActor)
+	r.Method("DELETE", "/api/admin/cron", cronActor)
+
+	// GET method is handled by the underlying Raft struct
 	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.RaftNode))
+
+	// GET method is handled by the underlying CronCollection struct
+	r.Method("GET", "/api/admin/cron", cron.NewCronCollectionHTTPGet(cronActor.CronCollection))
 
 	log.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)

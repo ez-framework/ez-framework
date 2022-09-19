@@ -10,6 +10,8 @@ docker compose up
 
 ```
 curl -d '{"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
+
+curl -d '{"ID":"1663552007","Timezone":"UTC","Schedule":"* * * * *","WorkerQueue":"ez-generic-worker"}' http://localhost:3000/api/admin/cron
 ```
 
 ## Notes 
@@ -29,20 +31,14 @@ It can:
 
 5. Config: Easy way to update config and password via key-value store and HTTP. [DONE]
 
-6. Config & IoT+WS: Easy way to receive config update through public websocket endpoint.
+6. Config & IoT+WS: Easy way to receive config update through public websocket endpoint. [DONE]
 
-  * Server [Done]
+  * TODO: The client loop needs to handle error and sudden termination. It also have to retry infinitely.
 
-  * Client
+7. Jobs: Easy way to schedule cron via leader functionality.
 
-7. IoT+WS: Easy way to scale websocket via pubsub. [WONT DO]
+8. Jobs: Easy way to have round robin worker via Jetstream as queue.
 
-  * Give this to customer to implement, they have everything they need including Nats.
+9. Security: LDAP ready with concepts of groups.
 
-8. Jobs: Easy way to schedule cron via leader functionality.
-
-9. Jobs: Easy way to have round robin worker via Jetstream as queue.
-
-10. Security: LDAP ready with concepts of groups.
-
-11. Security: Custom username+password via basic auth.
+10. Security: Custom username+password via basic auth.

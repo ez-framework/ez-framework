@@ -12,6 +12,7 @@ type IJetStreamActor interface {
 	Run()
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
+	OnBootLoad() error
 
 	kv() nats.KeyValue
 }
