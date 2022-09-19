@@ -8,19 +8,31 @@ import (
 	"github.com/ez-framework/ez-framework/configkv"
 )
 
-type IJetStreamActor interface {
-	Run()
+// IActor is the interface to conform to for all actors
+type IActor interface {
+	RunOnConfigUpdate()
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
-	OnBootLoad() error
+	OnBootLoadConfig() error
 
 	kv() nats.KeyValue
 }
 
-type GlobalConfig struct {
-	NatsAddr         string
-	HTTPAddr         string
-	NatsConn         *nats.Conn
+// ActorConfig is the config that all actors need
+type ActorConfig struct {
+	// HTTPAddr is the address to bind the HTTP server
+	HTTPAddr string
+
+	// NatsAddr is the address to connect to
+	NatsAddr string
+
+	// NatsConn is the connection to a NATS cluster
+	NatsConn *nats.Conn
+
 	JetStreamContext nats.JetStreamContext
-	ConfigKV         *configkv.ConfigKV
+
+	StreamConfig *nats.StreamConfig
+
+	// ConfigKV is the KV store available for all actors.
+	ConfigKV *configkv.ConfigKV
 }

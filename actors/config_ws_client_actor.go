@@ -11,8 +11,8 @@ import (
 func NewConfigWSClientActor(settings IConfigWSClientActorSettings) (*ConfigWSClientActor, error) {
 	actor := &ConfigWSClientActor{
 		Actor: Actor{
-			infoLogger:  log.Info(),
-			errorLogger: log.Error(),
+			infoLogger:  log.Info().Caller(),
+			errorLogger: log.Error().Caller(),
 		},
 		settings: settings,
 		kv:       settings.GetKV(),
@@ -36,8 +36,8 @@ type ConfigWSClientActor struct {
 	kv       IPutDelete
 }
 
-// Run listens to config changes and update the storage
-func (actor *ConfigWSClientActor) Run() {
+// RunOnConfigUpdate listens to config changes and update the storage
+func (actor *ConfigWSClientActor) RunOnConfigUpdate() {
 	actor.infoLogger.Caller().
 		Str("ws.url", actor.settings.GetWSURL()).
 		Msg("subscribing to websocket")

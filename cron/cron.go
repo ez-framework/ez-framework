@@ -25,6 +25,7 @@ func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
 	}
 }
 
+// CronCollection
 type CronCollection struct {
 	c              map[string]*gocron.Scheduler
 	confCollection map[string]CronConfig
@@ -67,6 +68,9 @@ func (collection *CronCollection) Delete(config CronConfig) {
 		delete(collection.c, config.ID)
 		delete(collection.confCollection, config.ID)
 	}
+}
+
+func (collection *CronCollection) Stop() {
 }
 
 func (collection *CronCollection) AllConfigs() map[string]CronConfig {

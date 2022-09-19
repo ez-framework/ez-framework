@@ -7,23 +7,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func NewWorkerActor(globalConfig GlobalConfig, name string, instances int, runfunc func([]byte)) (*WorkerActor, error) {
+// NewWorkerActor is the constructor for WorkerActor
+func NewWorkerActor(actorConfig ActorConfig, name string, instances int, runfunc func([]byte)) (*WorkerActor, error) {
 	name = "ez-worker-" + name
 
 	actor := &WorkerActor{
 		Actor: Actor{
-			globalConfig:  globalConfig,
-			jc:            globalConfig.JetStreamContext,
-			jetstreamName: name,
-			infoLogger:    log.Info().Str("stream.name", name),
-			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      globalConfig.ConfigKV,
+			actorConfig: actorConfig,
+			jc:          actorConfig.JetStreamContext,
+			streamName:  name,
+			infoLogger:  log.Info().Str("stream.name", name),
+			errorLogger: log.Error().Str("stream.name", name),
+			ConfigKV:    actorConfig.ConfigKV,
 		},
 		Instances:   instances,
 		RunFunction: runfunc,
 	}
 
-	err := actor.setupJetStreamStream(&nats.StreamConfig{
+	err := actor.setupStream(&nats.StreamConfig{
 		MaxAge: 1 * time.Minute,
 	})
 	if err != nil {
@@ -33,25 +34,23 @@ func NewWorkerActor(globalConfig GlobalConfig, name string, instances int, runfu
 	return actor, nil
 }
 
+// WorkerActor
 type WorkerActor struct {
 	Actor
 	Instances   int
 	RunFunction func([]byte)
 }
 
-func (actor *WorkerActor) jetstreamSubscribeSubjects() string {
-	return actor.jetstreamName + ".>"
-}
-
-func (actor *WorkerActor) Run() {
+// RunOnConfigUpdate
+func (actor *WorkerActor) RunOnConfigUpdate() {
 	for i := 0; i < actor.Instances; i++ {
 		actor.infoLogger.
 			Caller().
 			Int("index", i).
-			Str("subjects.subscribe", actor.jetstreamSubscribeSubjects()).
+			Str("subjects.subscribe", actor.subscribeSubjects()).
 			Msg("subscribing to nats subjects")
 
-		actor.jc.QueueSubscribe(actor.jetstreamSubscribeSubjects(), "workers", func(msg *nats.Msg) {
+		actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
 			actor.RunFunction(msg.Data)
 		})
 	}
@@ -59,6 +58,7 @@ func (actor *WorkerActor) Run() {
 	// TODO: book keeping the subscription to unsubscribe later
 }
 
-func (actor *WorkerActor) OnBootLoad() error {
+// OnBootLoadConfig
+func (actor *WorkerActor) OnBootLoadConfig() error {
 	return nil
 }

@@ -3,7 +3,6 @@ package actors
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
@@ -12,30 +11,30 @@ import (
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
+// upgrader is the setting passed when we upgrade the websocket HTTP connection.
+// We don't buffer so that downstreams can get config very quickly.
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  0,
 	WriteBufferSize: 0,
 }
 
 // NewConfigWSServerActor is the constructor for *ConfigWSServerActor
-func NewConfigWSServerActor(globalConfig GlobalConfig) (*ConfigWSServerActor, error) {
+func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, error) {
 	name := "ez-config-ws"
 
 	actor := &ConfigWSServerActor{
 		Actor: Actor{
-			jc:            globalConfig.JetStreamContext,
-			jetstreamName: name,
-			infoLogger:    log.Info().Str("stream.name", name),
-			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      globalConfig.ConfigKV,
+			jc:          actorConfig.JetStreamContext,
+			streamName:  name,
+			infoLogger:  log.Info().Str("stream.name", name).Caller(),
+			errorLogger: log.Error().Str("stream.name", name).Caller(),
+			debugLogger: log.Debug().Str("stream.name", name).Caller(),
+			ConfigKV:    actorConfig.ConfigKV,
 		},
 		configReceiverChan: make(chan []byte),
 	}
 
-	err := actor.setupJetStreamStream(&nats.StreamConfig{
-		MaxAge:    1 * time.Minute,
-		Retention: nats.WorkQueuePolicy,
-	})
+	err := actor.setupStream(actorConfig.StreamConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -49,15 +48,12 @@ type ConfigWSServerActor struct {
 	configReceiverChan chan []byte
 }
 
-func (actor *ConfigWSServerActor) jetstreamSubscribeSubjects() string {
-	return actor.jetstreamName + ".>"
-}
-
-// Run listens to config changes and update the storage
-func (actor *ConfigWSServerActor) Run() {
+// RunOnConfigUpdate listens to config changes and update the storage
+func (actor *ConfigWSServerActor) RunOnConfigUpdate() {
 	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
 
-	actor.jc.QueueSubscribe(actor.jetstreamSubscribeSubjects(), "workers", func(msg *nats.Msg) {
+	// We are listening to QueueSubscribe because we only need 1 worker responding to changes.
+	actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
 		// TODO: We can strip out certain config keys in the future
 
 		// 1. Unpack the config received
@@ -93,7 +89,7 @@ func (actor *ConfigWSServerActor) Run() {
 }
 
 // ServeHTTP is a websocket HTTTP handler.
-// It pushes all config to websocket clients.
+// It receives websocket connections and then pushes config data to websocket clients.
 func (actor *ConfigWSServerActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -102,7 +98,7 @@ func (actor *ConfigWSServerActor) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 	defer conn.Close()
 
-	actor.infoLogger.Caller().Msg("received a websocket connection")
+	actor.debugLogger.Msg("received a websocket connection")
 
 	for {
 		configWithEnvelopeBytes := <-actor.configReceiverChan

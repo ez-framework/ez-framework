@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
@@ -53,7 +54,7 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// common configuration for all actors
-	globalActorConfig := actors.GlobalConfig{
+	globalActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
 		NatsConn:         nc,
@@ -63,34 +64,54 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigActor
+	configActorConfig := globalActorConfig
+	configActorConfig.StreamConfig = &nats.StreamConfig{
+		MaxAge:    1 * time.Minute,
+		Retention: nats.WorkQueuePolicy,
+	}
 
-	configActor, err := actors.NewConfigActor(globalActorConfig)
+	configActor, err := actors.NewConfigActor(configActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
-	go configActor.Run()
+	go configActor.RunOnConfigUpdate()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigWSActor to push config to WS clients
+	configWSActorConfig := globalActorConfig
+	configWSActorConfig.StreamConfig = &nats.StreamConfig{
+		MaxAge:    1 * time.Minute,
+		Retention: nats.WorkQueuePolicy,
+	}
 
-	configWSActor, err := actors.NewConfigWSServerActor(globalActorConfig)
+	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
+
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
 	}
-	go configWSActor.Run()
+	go configWSActor.RunOnConfigUpdate()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
+	raftActorConfig := globalActorConfig
+	raftActorConfig.StreamConfig = &nats.StreamConfig{
+		MaxAge: 1 * time.Minute,
+	}
 
-	raftActor, err := actors.NewRaftActor(globalActorConfig)
+	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
 	}
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create cron scheduler as an actor
+	cronActorConfig := globalActorConfig
+	cronActorConfig.StreamConfig = &nats.StreamConfig{
+		MaxAge:    1 * time.Minute,
+		Retention: nats.WorkQueuePolicy,
+	}
 
-	cronActor, err := actors.NewCronActor(globalActorConfig)
+	cronActor, err := actors.NewCronActor(cronActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
 	}
@@ -98,13 +119,14 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		go cronActor.Run()
+		go cronActor.RunOnConfigUpdate()
+		cronActor.OnBootLoadConfig()
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
 		cronActor.Stop()
 	}
 
-	go raftActor.Run()
+	go raftActor.RunOnConfigUpdate()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a generic worker as an actor
@@ -115,13 +137,12 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create workerActor")
 	}
-	go workerActor.Run()
+	go workerActor.RunOnConfigUpdate()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store
 
-	raftActor.OnBootLoad()
-	cronActor.OnBootLoad()
+	raftActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor

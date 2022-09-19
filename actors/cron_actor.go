@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
@@ -14,24 +13,23 @@ import (
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
-func NewCronActor(globalConfig GlobalConfig) (*CronActor, error) {
+// NewCronActor is the constructor for CronActors
+func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 	name := "ez-cron"
 
 	actor := &CronActor{
 		Actor: Actor{
-			globalConfig:  globalConfig,
-			jc:            globalConfig.JetStreamContext,
-			jetstreamName: name,
-			infoLogger:    log.Info().Str("stream.name", name),
-			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      globalConfig.ConfigKV,
+			actorConfig: actorConfig,
+			jc:          actorConfig.JetStreamContext,
+			streamName:  name,
+			infoLogger:  log.Info().Str("stream.name", name),
+			errorLogger: log.Error().Str("stream.name", name),
+			ConfigKV:    actorConfig.ConfigKV,
 		},
-		CronCollection: cron.NewCronCollection(globalConfig.JetStreamContext),
+		CronCollection: cron.NewCronCollection(actorConfig.JetStreamContext),
 	}
 
-	err := actor.setupJetStreamStream(&nats.StreamConfig{
-		MaxAge: 1 * time.Minute,
-	})
+	err := actor.setupStream(actorConfig.StreamConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -45,9 +43,9 @@ type CronActor struct {
 	subscription   *nats.Subscription
 }
 
-// jetstreamSubscribeSubjects
-func (actor *CronActor) jetstreamSubscribeSubjects() string {
-	return actor.jetstreamName + ".>"
+// subscribeSubjects
+func (actor *CronActor) subscribeSubjects() string {
+	return actor.streamName + ".>"
 }
 
 // Stop
@@ -55,18 +53,20 @@ func (actor *CronActor) Stop() error {
 	err := actor.subscription.Unsubscribe()
 	if err == nil {
 		actor.subscription = nil
+		actor.CronCollection.Stop()
 	}
 	return err
 }
 
-// Run
-func (actor *CronActor) Run() {
+// RunOnConfigUpdate listens to config changes and update the CronCollection
+func (actor *CronActor) RunOnConfigUpdate() {
 	actor.infoLogger.
 		Caller().
-		Str("subjects.subscribe", actor.jetstreamSubscribeSubjects()).
+		Str("subjects.subscribe", actor.subscribeSubjects()).
 		Msg("subscribing to nats subjects")
 
-	sub, err := actor.jc.Subscribe(actor.jetstreamSubscribeSubjects(), func(msg *nats.Msg) {
+	// We subscribe as a queue because there's only 1 worker needed to listen to config changes
+	sub, err := actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
 		configBytes := msg.Data
 
 		conf := cron.CronConfig{}
@@ -80,7 +80,7 @@ func (actor *CronActor) Run() {
 		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
 			actor.CronCollection.Update(conf)
 
-			_, err := actor.kv().Put(actor.jetstreamName+"."+conf.ID, configBytes)
+			_, err := actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to save config")
 				return
@@ -92,7 +92,7 @@ func (actor *CronActor) Run() {
 		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
 			actor.CronCollection.Delete(conf)
 
-			err := actor.kv().Delete(actor.jetstreamName + "." + conf.ID)
+			err := actor.kv().Delete(actor.streamName + "." + conf.ID)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to delete config")
 				return
@@ -105,21 +105,22 @@ func (actor *CronActor) Run() {
 	}
 }
 
-func (actor *CronActor) OnBootLoad() error {
+// OnBootLoadConfig loads cron config from KV store and notify the listener to setup cron schedulers.
+func (actor *CronActor) OnBootLoadConfig() error {
 	keys, err := actor.kv().Keys()
 	if err != nil {
 		return err
 	}
 
 	for _, configKey := range keys {
-		if strings.HasPrefix(configKey, actor.jetstreamName+".") {
+		if strings.HasPrefix(configKey, actor.streamName+".") {
 			configBytes, err := actor.ConfigKV.GetConfigBytes(configKey)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to get config JSON bytes")
 				return err
 			}
 
-			err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, "POST"), configBytes)
+			err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to publish")
 			}
@@ -129,7 +130,7 @@ func (actor *CronActor) OnBootLoad() error {
 	return nil
 }
 
-// ServeHTTP supports updating and deleting via HTTP.
+// ServeHTTP supports updating and deleting cron via HTTP.
 // Actor's HTTP handler always support only POST, PUT, and DELETE
 // HTTP GET should only be supported by the underlying struct.
 func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +140,7 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, r.Method), configJSONBytes)
+	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), configJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
 		return

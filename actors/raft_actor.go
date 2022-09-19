@@ -2,7 +2,6 @@ package actors
 
 import (
 	"encoding/json"
-	"time"
 
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
@@ -11,23 +10,22 @@ import (
 	"github.com/ez-framework/ez-framework/raft"
 )
 
-func NewRaftActor(globalConfig GlobalConfig) (*RaftActor, error) {
+// NewRaftActor is the constructor of RaftActor
+func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	name := "ez-raft"
 
 	actor := &RaftActor{
 		Actor: Actor{
-			globalConfig:  globalConfig,
-			jc:            globalConfig.JetStreamContext,
-			jetstreamName: name,
-			infoLogger:    log.Info().Str("stream.name", name),
-			errorLogger:   log.Error().Str("stream.name", name),
-			ConfigKV:      globalConfig.ConfigKV,
+			actorConfig: actorConfig,
+			jc:          actorConfig.JetStreamContext,
+			streamName:  name,
+			infoLogger:  log.Info().Str("stream.name", name).Caller(),
+			errorLogger: log.Error().Str("stream.name", name).Caller(),
+			ConfigKV:    actorConfig.ConfigKV,
 		},
 	}
 
-	err := actor.setupJetStreamStream(&nats.StreamConfig{
-		MaxAge: 1 * time.Minute,
-	})
+	err := actor.setupStream(actorConfig.StreamConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -44,10 +42,7 @@ type RaftActor struct {
 	OnClosed            func(state graft.State)
 }
 
-func (actor *RaftActor) jetstreamSubscribeSubjects() string {
-	return actor.jetstreamName + ".>"
-}
-
+// setRaft sets the raft object to the actor and also configure its hooks.
 func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft = raftNode
 	actor.Raft.OnBecomingLeader = actor.OnBecomingLeader
@@ -56,13 +51,14 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft.OnClosed = actor.OnClosed
 }
 
-func (actor *RaftActor) Run() {
+// RunOnConfigUpdate listens to config changes and rebuild the raft consensus
+func (actor *RaftActor) RunOnConfigUpdate() {
 	actor.infoLogger.
 		Caller().
-		Str("subjects.subscribe", actor.jetstreamSubscribeSubjects()).
+		Str("subjects.subscribe", actor.subscribeSubjects()).
 		Msg("subscribing to nats subjects")
 
-	actor.jc.Subscribe(actor.jetstreamSubscribeSubjects(), func(msg *nats.Msg) {
+	actor.jc.Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
 		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
 			configBytes := msg.Data
 
@@ -76,10 +72,10 @@ func (actor *RaftActor) Run() {
 
 			// Fill in config from actor's global config
 			if conf.NatsAddr == "" {
-				conf.NatsAddr = actor.globalConfig.NatsAddr
+				conf.NatsAddr = actor.actorConfig.NatsAddr
 			}
 			if conf.HTTPAddr == "" {
-				conf.HTTPAddr = actor.globalConfig.HTTPAddr
+				conf.HTTPAddr = actor.actorConfig.HTTPAddr
 			}
 
 			// If there is an existing RaftNode, close it.
@@ -95,7 +91,7 @@ func (actor *RaftActor) Run() {
 			actor.setRaft(raftNode)
 
 			actor.infoLogger.Msg("RaftActor is running")
-			actor.Raft.Run()
+			actor.Raft.RunOnConfigUpdate()
 
 		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
 			if actor.Raft != nil {
@@ -105,14 +101,15 @@ func (actor *RaftActor) Run() {
 	})
 }
 
-func (actor *RaftActor) OnBootLoad() error {
-	configBytes, err := actor.ConfigKV.GetConfigBytes(actor.jetstreamName)
+// OnBootLoadConfig loads config from KV store and publish them so that we can build a consensus.
+func (actor *RaftActor) OnBootLoadConfig() error {
+	configBytes, err := actor.ConfigKV.GetConfigBytes(actor.streamName)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to get config JSON bytes")
 		return err
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.jetstreamName, "POST"), configBytes)
+	err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to publish")
 	}
