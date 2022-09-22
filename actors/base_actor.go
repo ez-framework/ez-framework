@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -9,28 +10,64 @@ import (
 	"github.com/ez-framework/ez-framework/configkv"
 )
 
+// ActorConfig is the config that all actors need
+type ActorConfig struct {
+	// HTTPAddr is the address to bind the HTTP server
+	HTTPAddr string
+
+	// NatsAddr is the address to connect to
+	NatsAddr string
+
+	// NatsConn is the connection to a NATS cluster
+	NatsConn *nats.Conn
+
+	JetStreamContext nats.JetStreamContext
+
+	StreamConfig *nats.StreamConfig
+
+	// ConfigKV is the KV store available for all actors.
+	ConfigKV *configkv.ConfigKV
+}
+
+// IActor is the interface to conform to for all actors
+type IActor interface {
+	RunSubscriber()
+	Publish(string, []byte) error
+	ServeHTTP(http.ResponseWriter, *http.Request)
+	OnBootLoadConfig() error
+	SetSubscriber(string, func(msg *nats.Msg))
+
+	jc() nats.JetStreamContext
+	kv() nats.KeyValue
+}
+
 // Actor is the base struct for all actors.
-// It provides common helper functions.
+// It provides common helper functions and conforms to IActor.
 type Actor struct {
-	actorConfig ActorConfig
-	jc          nats.JetStreamContext
-	streamName  string
-	ConfigKV    *configkv.ConfigKV
-	infoLogger  *zerolog.Event
-	errorLogger *zerolog.Event
-	debugLogger *zerolog.Event
+	ConfigKV *configkv.ConfigKV
+
+	actorConfig                ActorConfig
+	streamName                 string
+	onConfigUpdateSubscription *nats.Subscription
+	infoLogger                 *zerolog.Event
+	errorLogger                *zerolog.Event
+	debugLogger                *zerolog.Event
 }
 
 // setupStream creates a dedicated stream for this actor
-func (actor *Actor) setupStream(streamConfig *nats.StreamConfig) error {
+func (actor *Actor) setupStream() error {
 	actor.infoLogger.
 		Str("stream.name", actor.streamName).
 		Msg("about to setup a new stream")
 
-	streamConfig.Name = actor.streamName
-	streamConfig.Subjects = append(streamConfig.Subjects, actor.streamName+".>")
+	if actor.actorConfig.StreamConfig == nil {
+		actor.actorConfig.StreamConfig = &nats.StreamConfig{}
+	}
 
-	_, err := actor.jc.AddStream(streamConfig)
+	actor.actorConfig.StreamConfig.Name = actor.streamName
+	actor.actorConfig.StreamConfig.Subjects = append(actor.actorConfig.StreamConfig.Subjects, actor.streamName+".>")
+
+	_, err := actor.jc().AddStream(actor.actorConfig.StreamConfig)
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Str("stream.name", actor.streamName).
@@ -47,6 +84,11 @@ func (actor *Actor) setupStream(streamConfig *nats.StreamConfig) error {
 // NATS subpaths are delimited with dots.
 func (actor *Actor) subscribeSubjects() string {
 	return actor.streamName + ".>"
+}
+
+// kv gets the underlying KV store
+func (actor *Actor) jc() nats.JetStreamContext {
+	return actor.actorConfig.JetStreamContext
 }
 
 // kv gets the underlying KV store
@@ -73,10 +115,19 @@ func (actor *Actor) keyHasCommand(key, command string) bool {
 	return strings.HasSuffix(key, ".command:"+command)
 }
 
+// unsubscribeFromOnConfigUpdate
+func (actor *Actor) unsubscribeFromOnConfigUpdate() error {
+	if actor.onConfigUpdateSubscription != nil {
+		return actor.onConfigUpdateSubscription.Unsubscribe()
+	}
+
+	return nil
+}
+
 // Publish data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
 func (actor *Actor) Publish(key string, data []byte) error {
-	_, err := actor.jc.Publish(key, data)
+	_, err := actor.jc().Publish(key, data)
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Str("publish.key", key).
@@ -84,4 +135,68 @@ func (actor *Actor) Publish(key string, data []byte) error {
 	}
 
 	return err
+}
+
+// POSTSubscriber listens to POST command and do something
+func (actor *Actor) POSTSubscriber(msg *nats.Msg) {
+}
+
+// PUTSubscriber listens to PUT command and do something
+func (actor *Actor) PUTSubscriber(msg *nats.Msg) {
+}
+
+// DELETESubscriber listens to DELETE command and do something
+func (actor *Actor) DELETESubscriber(msg *nats.Msg) {
+}
+
+// RunSubscriber listens to config changes and execute hooks
+func (actor *Actor) RunSubscriber() {
+	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
+
+	var err error
+	var sub *nats.Subscription
+
+	switch actor.actorConfig.StreamConfig.Retention {
+	case nats.WorkQueuePolicy:
+		sub, err = actor.jc().QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
+			if actor.keyHasCommand(msg.Subject, "POST") {
+				actor.POSTSubscriber(msg)
+			} else if actor.keyHasCommand(msg.Subject, "PUT") {
+				actor.PUTSubscriber(msg)
+			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+				actor.DELETESubscriber(msg)
+			}
+		})
+	default:
+		sub, err = actor.jc().Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
+			if actor.keyHasCommand(msg.Subject, "POST") {
+				actor.POSTSubscriber(msg)
+			} else if actor.keyHasCommand(msg.Subject, "PUT") {
+				actor.PUTSubscriber(msg)
+			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+				actor.DELETESubscriber(msg)
+			}
+		})
+	}
+
+	if err == nil {
+		actor.onConfigUpdateSubscription = sub
+
+	} else {
+		actor.errorLogger.Err(err).
+			Err(err).
+			Str("subjects", actor.subscribeSubjects()).
+			Msg("failed to subscribe to subjects")
+	}
+}
+
+// OnBootLoadConfig
+func (actor *Actor) OnBootLoadConfig() error {
+	actor.infoLogger.Msg("OnBootLoadConfig() is not implemented")
+	return nil
+}
+
+// ServeHTTP
+func (actor *Actor) ServeHTTP(http.ResponseWriter, *http.Request) {
+	actor.infoLogger.Msg("ServeHTTP() is not implemented")
 }

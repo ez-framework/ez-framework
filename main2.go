@@ -72,7 +72,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
 	}
-	go configWSActor.Run()
+	go configWSActor.RunSubscriber()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor

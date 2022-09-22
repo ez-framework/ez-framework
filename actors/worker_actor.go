@@ -1,32 +1,25 @@
 package actors
 
 import (
-	"time"
-
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
 
 // NewWorkerActor is the constructor for WorkerActor
-func NewWorkerActor(actorConfig ActorConfig, name string, instances int, runfunc func([]byte)) (*WorkerActor, error) {
+func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) {
 	name = "ez-worker-" + name
 
 	actor := &WorkerActor{
 		Actor: Actor{
 			actorConfig: actorConfig,
-			jc:          actorConfig.JetStreamContext,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
+			infoLogger:  log.Info().Str("stream.name", name).Caller(),
+			errorLogger: log.Error().Str("stream.name", name).Caller(),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
-		Instances:   instances,
-		RunFunction: runfunc,
 	}
 
-	err := actor.setupStream(&nats.StreamConfig{
-		MaxAge: 1 * time.Minute,
-	})
+	err := actor.setupStream()
 	if err != nil {
 		return nil, err
 	}
@@ -34,31 +27,31 @@ func NewWorkerActor(actorConfig ActorConfig, name string, instances int, runfunc
 	return actor, nil
 }
 
-// WorkerActor
+// WorkerActor is a generic Actor.
 type WorkerActor struct {
 	Actor
-	Instances   int
-	RunFunction func([]byte)
+	POST   func(msg *nats.Msg)
+	PUT    func(msg *nats.Msg)
+	DELETE func(msg *nats.Msg)
 }
 
-// RunOnConfigUpdate
-func (actor *WorkerActor) RunOnConfigUpdate() {
-	for i := 0; i < actor.Instances; i++ {
-		actor.infoLogger.
-			Caller().
-			Int("index", i).
-			Str("subjects.subscribe", actor.subscribeSubjects()).
-			Msg("subscribing to nats subjects")
-
-		actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-			actor.RunFunction(msg.Data)
-		})
+// POSTSubscriber listens to POST command and do something
+func (actor *WorkerActor) POSTSubscriber(msg *nats.Msg) {
+	if actor.POST != nil {
+		actor.POST(msg)
 	}
-
-	// TODO: book keeping the subscription to unsubscribe later
 }
 
-// OnBootLoadConfig
-func (actor *WorkerActor) OnBootLoadConfig() error {
-	return nil
+// PUTSubscriber listens to PUT command and do something
+func (actor *WorkerActor) PUTSubscriber(msg *nats.Msg) {
+	if actor.PUT != nil {
+		actor.PUT(msg)
+	}
+}
+
+// DELETESubscriber listens to DELETE command and do something
+func (actor *WorkerActor) DELETESubscriber(msg *nats.Msg) {
+	if actor.DELETE != nil {
+		actor.DELETE(msg)
+	}
 }

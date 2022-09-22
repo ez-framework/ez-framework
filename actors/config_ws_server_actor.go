@@ -24,7 +24,7 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 
 	actor := &ConfigWSServerActor{
 		Actor: Actor{
-			jc:          actorConfig.JetStreamContext,
+			actorConfig: actorConfig,
 			streamName:  name,
 			infoLogger:  log.Info().Str("stream.name", name).Caller(),
 			errorLogger: log.Error().Str("stream.name", name).Caller(),
@@ -34,7 +34,7 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 		configReceiverChan: make(chan []byte),
 	}
 
-	err := actor.setupStream(actorConfig.StreamConfig)
+	err := actor.setupStream()
 	if err != nil {
 		return nil, err
 	}
@@ -48,44 +48,59 @@ type ConfigWSServerActor struct {
 	configReceiverChan chan []byte
 }
 
-// RunOnConfigUpdate listens to config changes and update the storage
-func (actor *ConfigWSServerActor) RunOnConfigUpdate() {
-	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
+func (actor *ConfigWSServerActor) updateHandler(msg *nats.Msg) {
+	// TODO: We can strip out certain config keys in the future
 
-	// We are listening to QueueSubscribe because we only need 1 worker responding to changes.
-	actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-		// TODO: We can strip out certain config keys in the future
+	// 1. Unpack the config received
+	config := make(map[string]any)
 
-		// 1. Unpack the config received
-		config := make(map[string]any)
+	err := json.Unmarshal(msg.Data, &config)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		return
+	}
 
-		err := json.Unmarshal(msg.Data, &config)
-		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-			return
-		}
+	// 2. Create an envelope for WS clients
+	configWithEnvelope := ConfigWSActorPayload{
+		Body: config,
+	}
 
-		// 2. Create an envelope for WS clients
-		configWithEnvelope := ConfigWSActorPayload{
-			Body: config,
-		}
+	if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
+		configWithEnvelope.Method = "POST"
 
-		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
-			configWithEnvelope.Method = "POST"
+	} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+		configWithEnvelope.Method = "DELETE"
+	}
 
-		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			configWithEnvelope.Method = "DELETE"
-		}
+	// 3. Push the config with the envelope to WS clients
+	configWithEnvelopeBytes, err := json.Marshal(configWithEnvelope)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config with websocket envelope")
+		return
+	}
 
-		// 3. Push the config with the envelope to WS clients
-		configWithEnvelopeBytes, err := json.Marshal(configWithEnvelope)
-		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to unmarshal config with websocket envelope")
-			return
-		}
+	actor.configReceiverChan <- configWithEnvelopeBytes
+}
 
-		actor.configReceiverChan <- configWithEnvelopeBytes
-	})
+// POSTSubscriber listens to POST command and do something
+func (actor *ConfigWSServerActor) POSTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
+
+// PUTSubscriber listens to PUT command and do something
+func (actor *ConfigWSServerActor) PUTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
+
+// DELETESubscriber listens to DELETE command and do something
+func (actor *ConfigWSServerActor) DELETESubscriber(msg *nats.Msg) {
+	err := actor.unsubscribeFromOnConfigUpdate()
+	if err != nil {
+		actor.errorLogger.Err(err).
+			Err(err).
+			Str("subjects", actor.subscribeSubjects()).
+			Msg("failed to unsubscribe from subjects")
+	}
 }
 
 // ServeHTTP is a websocket HTTTP handler.

@@ -20,7 +20,6 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 	actor := &CronActor{
 		Actor: Actor{
 			actorConfig: actorConfig,
-			jc:          actorConfig.JetStreamContext,
 			streamName:  name,
 			infoLogger:  log.Info().Str("stream.name", name),
 			errorLogger: log.Error().Str("stream.name", name),
@@ -29,7 +28,7 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		CronCollection: cron.NewCronCollection(actorConfig.JetStreamContext),
 	}
 
-	err := actor.setupStream(actorConfig.StreamConfig)
+	err := actor.setupStream()
 	if err != nil {
 		return nil, err
 	}
@@ -40,69 +39,70 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 type CronActor struct {
 	Actor
 	CronCollection *cron.CronCollection
-	subscription   *nats.Subscription
 }
 
-// subscribeSubjects
-func (actor *CronActor) subscribeSubjects() string {
-	return actor.streamName + ".>"
-}
+func (actor *CronActor) updateHandler(msg *nats.Msg) {
+	configBytes := msg.Data
 
-// Stop
-func (actor *CronActor) Stop() error {
-	err := actor.subscription.Unsubscribe()
-	if err == nil {
-		actor.subscription = nil
-		actor.CronCollection.Stop()
+	conf := cron.CronConfig{}
+
+	err := json.Unmarshal(configBytes, &conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		return
 	}
-	return err
+
+	actor.CronCollection.Update(conf)
+
+	_, err = actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to save config")
+		return
+	}
+
+	// TODO: We need to check of this instance is the leader
+	actor.CronCollection.Run(conf)
 }
 
-// RunOnConfigUpdate listens to config changes and update the CronCollection
-func (actor *CronActor) RunOnConfigUpdate() {
-	actor.infoLogger.
-		Caller().
-		Str("subjects.subscribe", actor.subscribeSubjects()).
-		Msg("subscribing to nats subjects")
+// POSTSubscriber listens to POST command and do something
+func (actor *CronActor) POSTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
 
-	// We subscribe as a queue because there's only 1 worker needed to listen to config changes
-	sub, err := actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-		configBytes := msg.Data
+// PUTSubscriber listens to PUT command and do something
+func (actor *CronActor) PUTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
 
-		conf := cron.CronConfig{}
+// DELETESubscriber listens to DELETE command and do something
+func (actor *CronActor) DELETESubscriber(msg *nats.Msg) {
+	configBytes := msg.Data
 
-		err := json.Unmarshal(configBytes, &conf)
-		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-			return
-		}
+	conf := cron.CronConfig{}
 
-		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
-			actor.CronCollection.Update(conf)
-
-			_, err := actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
-			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to save config")
-				return
-			}
-
-			// TODO: We need to check of this instance is the leader
-			actor.CronCollection.Run(conf)
-
-		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			actor.CronCollection.Delete(conf)
-
-			err := actor.kv().Delete(actor.streamName + "." + conf.ID)
-			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to delete config")
-				return
-			}
-		}
-	})
-
-	if err == nil {
-		actor.subscription = sub
+	err := json.Unmarshal(configBytes, &conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		return
 	}
+
+	actor.CronCollection.Delete(conf)
+
+	err = actor.kv().Delete(actor.streamName + "." + conf.ID)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to delete config")
+		return
+	}
+
+	err = actor.unsubscribeFromOnConfigUpdate()
+	if err != nil {
+		actor.errorLogger.Err(err).
+			Err(err).
+			Str("subjects", actor.subscribeSubjects()).
+			Msg("failed to unsubscribe from subjects")
+	}
+
+	actor.CronCollection.Stop()
 }
 
 // OnBootLoadConfig loads cron config from KV store and notify the listener to setup cron schedulers.

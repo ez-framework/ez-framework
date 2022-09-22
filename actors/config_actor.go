@@ -17,7 +17,7 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 
 	actor := &ConfigActor{
 		Actor: Actor{
-			jc:          actorConfig.JetStreamContext,
+			actorConfig: actorConfig,
 			streamName:  name,
 			infoLogger:  log.Info().Str("stream.name", name).Caller(),
 			errorLogger: log.Error().Str("stream.name", name).Caller(),
@@ -29,7 +29,7 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		},
 	}
 
-	err := actor.setupStream(actorConfig.StreamConfig)
+	err := actor.setupStream()
 	if err != nil {
 		return nil, err
 	}
@@ -85,11 +85,21 @@ func (actor *ConfigActor) publishToDownstreams(configJSON map[string]interface{}
 
 // updateHandler will be executed inside Run.
 // It responds to POST and PUT commands.
-func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error {
-	// Push config to downstream subscribers.
-	err := actor.publishToDownstreams(configJSON, "POST")
+func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
+	configJSONBytes := msg.Data
+	configJSON := make(map[string]interface{})
+
+	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
-		return err
+		actor.errorLogger.Err(err).
+			Err(err).
+			Msg("failed to unmarshal config inside RunSubscriber()")
+	}
+
+	// Push config to downstream subscribers.
+	err = actor.publishToDownstreams(configJSON, "POST")
+	if err != nil {
+		return
 	}
 
 	// ---------------------------------------------------------------------------
@@ -98,7 +108,7 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 		configBytes, err := json.Marshal(value)
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to marshal config into JSON bytes")
-			return err
+			return
 		}
 
 		// Get existing config
@@ -107,7 +117,7 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 			// Don't do anything if new config is the same as existing config
 			existingConfigBytes := existingConfig.Value()
 			if bytes.Equal(existingConfigBytes, configBytes) {
-				return nil
+				return
 			}
 		}
 
@@ -115,23 +125,41 @@ func (actor *ConfigActor) updateHandler(configJSON map[string]interface{}) error
 		revision, err := actor.kv().Put(configKey, configBytes)
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
-			return err
+			return
 
 		} else {
 			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
 		}
 	}
-
-	return nil
 }
 
-// deleteHandler will be executed inside Run.
-// It responds to DELETE command.
-func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error {
-	// Push config to downstream subscribers.
-	err := actor.publishToDownstreams(configJSON, "DELETE")
+// POSTSubscriber listens to POST command and do something
+func (actor *ConfigActor) POSTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
+
+// PUTSubscriber listens to PUT command and do something
+func (actor *ConfigActor) PUTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
+
+// DELETESubscriber listens to DELETE command and do something
+func (actor *ConfigActor) DELETESubscriber(msg *nats.Msg) {
+	configJSONBytes := msg.Data
+	configJSON := make(map[string]interface{})
+
+	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
-		return err
+		actor.errorLogger.Err(err).
+			Err(err).
+			Msg("failed to unmarshal config inside RunSubscriber()")
+	}
+
+	// Push config to downstream subscribers.
+	err = actor.publishToDownstreams(configJSON, "DELETE")
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to publish downstream")
+		return
 	}
 
 	// ---------------------------------------------------------------------------
@@ -140,46 +168,19 @@ func (actor *ConfigActor) deleteHandler(configJSON map[string]interface{}) error
 		err := actor.kv().Delete(actor.keyWithoutCommand(configKey))
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
-			return err
+			return
 		}
 	}
 
-	return nil
-}
+	// ---------------------------------------------------------------------------
 
-// RunOnConfigUpdate listens to config changes and update the storage
-func (actor *ConfigActor) RunOnConfigUpdate() {
-	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
-
-	// We are using QueueSubscribe because only 1 worker need to respond.
-	actor.jc.QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-		configJSONBytes := msg.Data
-		configJSON := make(map[string]interface{})
-
-		err := json.Unmarshal(configJSONBytes, &configJSON)
-		if err != nil {
-			actor.errorLogger.Err(err).
-				Err(err).
-				Msg("failed to unmarshal config inside RunOnConfigUpdate()")
-		}
-
-		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
-			err := actor.updateHandler(configJSON)
-			if err != nil {
-				actor.errorLogger.Err(err).
-					Err(err).
-					Msg("failed to execute updateHandler inside RunOnConfigUpdate()")
-			}
-
-		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			err := actor.deleteHandler(configJSON)
-			if err != nil {
-				actor.errorLogger.Err(err).
-					Err(err).
-					Msg("failed to execute deleteHandler inside RunOnConfigUpdate()")
-			}
-		}
-	})
+	err = actor.unsubscribeFromOnConfigUpdate()
+	if err != nil {
+		actor.errorLogger.Err(err).
+			Err(err).
+			Str("subjects", actor.subscribeSubjects()).
+			Msg("failed to unsubscribe from subjects")
+	}
 }
 
 // ServeHTTP supports updating and deleting via HTTP.

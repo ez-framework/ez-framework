@@ -17,7 +17,6 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	actor := &RaftActor{
 		Actor: Actor{
 			actorConfig: actorConfig,
-			jc:          actorConfig.JetStreamContext,
 			streamName:  name,
 			infoLogger:  log.Info().Str("stream.name", name).Caller(),
 			errorLogger: log.Error().Str("stream.name", name).Caller(),
@@ -25,7 +24,7 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		},
 	}
 
-	err := actor.setupStream(actorConfig.StreamConfig)
+	err := actor.setupStream()
 	if err != nil {
 		return nil, err
 	}
@@ -51,54 +50,64 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft.OnClosed = actor.OnClosed
 }
 
-// RunOnConfigUpdate listens to config changes and rebuild the raft consensus
-func (actor *RaftActor) RunOnConfigUpdate() {
-	actor.infoLogger.
-		Caller().
-		Str("subjects.subscribe", actor.subscribeSubjects()).
-		Msg("subscribing to nats subjects")
+func (actor *RaftActor) updateHandler(msg *nats.Msg) {
+	configBytes := msg.Data
 
-	actor.jc.Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
-		if actor.keyHasCommand(msg.Subject, "POST") || actor.keyHasCommand(msg.Subject, "PUT") {
-			configBytes := msg.Data
+	conf := raft.ConfigRaft{}
 
-			conf := raft.ConfigRaft{}
+	err := json.Unmarshal(configBytes, &conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		return
+	}
 
-			err := json.Unmarshal(configBytes, &conf)
-			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-				return
-			}
+	// Fill in config from actor's global config
+	if conf.NatsAddr == "" {
+		conf.NatsAddr = actor.actorConfig.NatsAddr
+	}
+	if conf.HTTPAddr == "" {
+		conf.HTTPAddr = actor.actorConfig.HTTPAddr
+	}
 
-			// Fill in config from actor's global config
-			if conf.NatsAddr == "" {
-				conf.NatsAddr = actor.actorConfig.NatsAddr
-			}
-			if conf.HTTPAddr == "" {
-				conf.HTTPAddr = actor.actorConfig.HTTPAddr
-			}
+	// If there is an existing RaftNode, close it.
+	if actor.Raft != nil {
+		actor.Raft.Close()
+	}
 
-			// If there is an existing RaftNode, close it.
-			if actor.Raft != nil {
-				actor.Raft.Close()
-			}
+	raftNode, err := raft.NewRaft(conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to create a raft node")
+		return
+	}
+	actor.setRaft(raftNode)
 
-			raftNode, err := raft.NewRaft(conf)
-			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to create a raft node")
-				return
-			}
-			actor.setRaft(raftNode)
+	actor.infoLogger.Msg("RaftActor is running")
+	actor.Raft.RunSubscriber()
+}
 
-			actor.infoLogger.Msg("RaftActor is running")
-			actor.Raft.RunOnConfigUpdate()
+// POSTSubscriber listens to POST command and do something
+func (actor *RaftActor) POSTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
 
-		} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-			if actor.Raft != nil {
-				actor.Raft.Close()
-			}
-		}
-	})
+// PUTSubscriber listens to PUT command and do something
+func (actor *RaftActor) PUTSubscriber(msg *nats.Msg) {
+	actor.updateHandler(msg)
+}
+
+// DELETESubscriber listens to DELETE command and do something
+func (actor *RaftActor) DELETESubscriber(msg *nats.Msg) {
+	err := actor.unsubscribeFromOnConfigUpdate()
+	if err != nil {
+		actor.errorLogger.Err(err).
+			Err(err).
+			Str("subjects", actor.subscribeSubjects()).
+			Msg("failed to unsubscribe from subjects")
+	}
+
+	if actor.Raft != nil {
+		actor.Raft.Close()
+	}
 }
 
 // OnBootLoadConfig loads config from KV store and publish them so that we can build a consensus.

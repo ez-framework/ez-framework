@@ -36,8 +36,8 @@ type ConfigWSClientActor struct {
 	kv       IPutDelete
 }
 
-// RunOnConfigUpdate listens to config changes and update the storage
-func (actor *ConfigWSClientActor) RunOnConfigUpdate() {
+// RunSubscriber listens to config changes and update the storage
+func (actor *ConfigWSClientActor) RunSubscriber() {
 	actor.infoLogger.Caller().
 		Str("ws.url", actor.settings.GetWSURL()).
 		Msg("subscribing to websocket")

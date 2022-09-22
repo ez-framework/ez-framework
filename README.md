@@ -41,14 +41,16 @@ It can:
 
 * Jobs: Easy way to have round robin worker via Jetstream as queue. [DONE]
 
-* Security: LDAP ready with concepts of groups.
-
-* Security: Custom username+password via basic auth.
-
 * Bullet proofing.
 
   * Each Actor must stop cleanly if needed to.
 
+    * DELETE command must work for all actor to listen to. And it should respond by stopping the subscription.
+
   * Tests.
 
   * Godoc.
+
+* Security: LDAP ready with concepts of groups.
+
+* Security: Custom username+password via basic auth.
