@@ -34,6 +34,10 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		return nil, err
 	}
 
+	actor.SetPOSTSubscriber(actor.updateHandler)
+	actor.SetPUTSubscriber(actor.updateHandler)
+	actor.SetDELETESubscriber(actor.deleteHandler)
+
 	return actor, nil
 }
 
@@ -92,13 +96,14 @@ func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).
-			Err(err).
 			Msg("failed to unmarshal config inside RunSubscriber()")
 	}
 
 	// Push config to downstream subscribers.
 	err = actor.publishToDownstreams(configJSON, "POST")
 	if err != nil {
+		actor.errorLogger.Err(err).
+			Msg("failed to published to downstreams")
 		return
 	}
 
@@ -133,18 +138,8 @@ func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
 	}
 }
 
-// POSTSubscriber listens to POST command and do something
-func (actor *ConfigActor) POSTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// PUTSubscriber listens to PUT command and do something
-func (actor *ConfigActor) PUTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// DELETESubscriber listens to DELETE command and do something
-func (actor *ConfigActor) DELETESubscriber(msg *nats.Msg) {
+// deleteHandler listens to DELETE command and do something
+func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 	configJSONBytes := msg.Data
 	configJSON := make(map[string]interface{})
 

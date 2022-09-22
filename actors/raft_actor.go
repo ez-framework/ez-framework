@@ -29,6 +29,10 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		return nil, err
 	}
 
+	actor.SetPOSTSubscriber(actor.updateHandler)
+	actor.SetPUTSubscriber(actor.updateHandler)
+	actor.SetDELETESubscriber(actor.deleteHandler)
+
 	return actor, nil
 }
 
@@ -85,18 +89,8 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.Raft.RunSubscriber()
 }
 
-// POSTSubscriber listens to POST command and do something
-func (actor *RaftActor) POSTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// PUTSubscriber listens to PUT command and do something
-func (actor *RaftActor) PUTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// DELETESubscriber listens to DELETE command and do something
-func (actor *RaftActor) DELETESubscriber(msg *nats.Msg) {
+// deleteHandler listens to DELETE command and do something
+func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
 	err := actor.unsubscribeFromOnConfigUpdate()
 	if err != nil {
 		actor.errorLogger.Err(err).

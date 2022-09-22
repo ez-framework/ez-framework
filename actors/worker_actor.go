@@ -1,7 +1,6 @@
 package actors
 
 import (
-	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,28 +29,4 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 // WorkerActor is a generic Actor.
 type WorkerActor struct {
 	Actor
-	POST   func(msg *nats.Msg)
-	PUT    func(msg *nats.Msg)
-	DELETE func(msg *nats.Msg)
-}
-
-// POSTSubscriber listens to POST command and do something
-func (actor *WorkerActor) POSTSubscriber(msg *nats.Msg) {
-	if actor.POST != nil {
-		actor.POST(msg)
-	}
-}
-
-// PUTSubscriber listens to PUT command and do something
-func (actor *WorkerActor) PUTSubscriber(msg *nats.Msg) {
-	if actor.PUT != nil {
-		actor.PUT(msg)
-	}
-}
-
-// DELETESubscriber listens to DELETE command and do something
-func (actor *WorkerActor) DELETESubscriber(msg *nats.Msg) {
-	if actor.DELETE != nil {
-		actor.DELETE(msg)
-	}
 }

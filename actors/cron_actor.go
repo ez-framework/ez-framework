@@ -33,6 +33,10 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		return nil, err
 	}
 
+	actor.SetPOSTSubscriber(actor.updateHandler)
+	actor.SetPUTSubscriber(actor.updateHandler)
+	actor.SetDELETESubscriber(actor.deleteHandler)
+
 	return actor, nil
 }
 
@@ -64,18 +68,8 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 	actor.CronCollection.Run(conf)
 }
 
-// POSTSubscriber listens to POST command and do something
-func (actor *CronActor) POSTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// PUTSubscriber listens to PUT command and do something
-func (actor *CronActor) PUTSubscriber(msg *nats.Msg) {
-	actor.updateHandler(msg)
-}
-
-// DELETESubscriber listens to DELETE command and do something
-func (actor *CronActor) DELETESubscriber(msg *nats.Msg) {
+// deleteHandler listens to DELETE command and do something
+func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}

@@ -35,7 +35,9 @@ type IActor interface {
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	OnBootLoadConfig() error
-	SetSubscriber(string, func(msg *nats.Msg))
+	SetPOSTSubscriber(func(msg *nats.Msg))
+	SetPUTSubscriber(func(msg *nats.Msg))
+	SetDELETESubscriber(func(msg *nats.Msg))
 
 	jc() nats.JetStreamContext
 	kv() nats.KeyValue
@@ -46,20 +48,19 @@ type IActor interface {
 type Actor struct {
 	ConfigKV *configkv.ConfigKV
 
-	actorConfig                ActorConfig
-	streamName                 string
-	onConfigUpdateSubscription *nats.Subscription
-	infoLogger                 *zerolog.Event
-	errorLogger                *zerolog.Event
-	debugLogger                *zerolog.Event
+	actorConfig      ActorConfig
+	streamName       string
+	postSubscriber   func(msg *nats.Msg)
+	putSubscriber    func(msg *nats.Msg)
+	deleteSubscriber func(msg *nats.Msg)
+	subscription     *nats.Subscription
+	infoLogger       *zerolog.Event
+	errorLogger      *zerolog.Event
+	debugLogger      *zerolog.Event
 }
 
 // setupStream creates a dedicated stream for this actor
 func (actor *Actor) setupStream() error {
-	actor.infoLogger.
-		Str("stream.name", actor.streamName).
-		Msg("about to setup a new stream")
-
 	if actor.actorConfig.StreamConfig == nil {
 		actor.actorConfig.StreamConfig = &nats.StreamConfig{}
 	}
@@ -117,11 +118,26 @@ func (actor *Actor) keyHasCommand(key, command string) bool {
 
 // unsubscribeFromOnConfigUpdate
 func (actor *Actor) unsubscribeFromOnConfigUpdate() error {
-	if actor.onConfigUpdateSubscription != nil {
-		return actor.onConfigUpdateSubscription.Unsubscribe()
+	if actor.subscription != nil {
+		return actor.subscription.Unsubscribe()
 	}
 
 	return nil
+}
+
+// SetPOSTSubscriber
+func (actor *Actor) SetPOSTSubscriber(handler func(msg *nats.Msg)) {
+	actor.postSubscriber = handler
+}
+
+// SetPUTSubscriber
+func (actor *Actor) SetPUTSubscriber(handler func(msg *nats.Msg)) {
+	actor.putSubscriber = handler
+}
+
+// SetDELETESubscriber
+func (actor *Actor) SetDELETESubscriber(handler func(msg *nats.Msg)) {
+	actor.deleteSubscriber = handler
 }
 
 // Publish data into JetStream with a nats key.
@@ -137,21 +153,9 @@ func (actor *Actor) Publish(key string, data []byte) error {
 	return err
 }
 
-// POSTSubscriber listens to POST command and do something
-func (actor *Actor) POSTSubscriber(msg *nats.Msg) {
-}
-
-// PUTSubscriber listens to PUT command and do something
-func (actor *Actor) PUTSubscriber(msg *nats.Msg) {
-}
-
-// DELETESubscriber listens to DELETE command and do something
-func (actor *Actor) DELETESubscriber(msg *nats.Msg) {
-}
-
 // RunSubscriber listens to config changes and execute hooks
 func (actor *Actor) RunSubscriber() {
-	actor.infoLogger.Caller().Msg("subscribing to nats subjects")
+	actor.infoLogger.Msg("subscribing to nats subjects")
 
 	var err error
 	var sub *nats.Subscription
@@ -160,27 +164,39 @@ func (actor *Actor) RunSubscriber() {
 	case nats.WorkQueuePolicy:
 		sub, err = actor.jc().QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
 			if actor.keyHasCommand(msg.Subject, "POST") {
-				actor.POSTSubscriber(msg)
+				if actor.postSubscriber != nil {
+					actor.postSubscriber(msg)
+				}
 			} else if actor.keyHasCommand(msg.Subject, "PUT") {
-				actor.PUTSubscriber(msg)
+				if actor.putSubscriber != nil {
+					actor.putSubscriber(msg)
+				}
 			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-				actor.DELETESubscriber(msg)
+				if actor.deleteSubscriber != nil {
+					actor.deleteSubscriber(msg)
+				}
 			}
 		})
 	default:
 		sub, err = actor.jc().Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
 			if actor.keyHasCommand(msg.Subject, "POST") {
-				actor.POSTSubscriber(msg)
+				if actor.postSubscriber != nil {
+					actor.postSubscriber(msg)
+				}
 			} else if actor.keyHasCommand(msg.Subject, "PUT") {
-				actor.PUTSubscriber(msg)
+				if actor.putSubscriber != nil {
+					actor.putSubscriber(msg)
+				}
 			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-				actor.DELETESubscriber(msg)
+				if actor.deleteSubscriber != nil {
+					actor.deleteSubscriber(msg)
+				}
 			}
 		})
 	}
 
 	if err == nil {
-		actor.onConfigUpdateSubscription = sub
+		actor.subscription = sub
 
 	} else {
 		actor.errorLogger.Err(err).
