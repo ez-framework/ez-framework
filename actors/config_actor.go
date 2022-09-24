@@ -24,8 +24,8 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		Downstreams: map[string][]string{
-			"all":     []string{"ez-config-ws"},
-			"ez-raft": []string{"ez-raft"},
+			"all":     {"ez-config-ws"},
+			"ez-raft": {"ez-raft"},
 		},
 	}
 
@@ -197,7 +197,7 @@ func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Example: Publish(ez-config.command:POST)
-	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3,"NatsAddr":"nats://127.0.0.1:4222"}}
+	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
 	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), originalJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)

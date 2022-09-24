@@ -31,6 +31,7 @@ type ActorConfig struct {
 
 // IActor is the interface to conform to for all actors
 type IActor interface {
+	GetStreamName() string
 	RunSubscriber()
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
@@ -123,6 +124,10 @@ func (actor *Actor) unsubscribeFromOnConfigUpdate() error {
 	}
 
 	return nil
+}
+
+func (actor *Actor) GetStreamName() string {
+	return actor.streamName
 }
 
 // SetPOSTSubscriber
