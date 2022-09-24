@@ -19,8 +19,8 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name).Caller(),
-			errorLogger: log.Error().Str("stream.name", name).Caller(),
+			infoLogger:  log.Info().Str("stream.name", name),
+			errorLogger: log.Error().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		Downstreams: map[string][]string{

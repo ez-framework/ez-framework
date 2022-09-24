@@ -71,11 +71,17 @@ func (actor *Actor) setupStream() error {
 
 	_, err := actor.jc().AddStream(actor.actorConfig.StreamConfig)
 	if err != nil {
-		actor.errorLogger.Err(err).
-			Str("stream.name", actor.streamName).
-			Msg("failed to create or get a stream")
+		if err.Error() == "nats: stream name already in use" {
+			_, err = actor.jc().UpdateStream(actor.actorConfig.StreamConfig)
+		}
 
-		return err
+		if err != nil {
+			actor.errorLogger.Caller().Err(err).
+				Str("stream.name", actor.streamName).
+				Msg("failed to create or get a stream")
+
+			return err
+		}
 	}
 
 	return nil

@@ -11,8 +11,8 @@ import (
 func NewConfigWSClientActor(settings IConfigWSClientActorSettings) (*ConfigWSClientActor, error) {
 	actor := &ConfigWSClientActor{
 		Actor: Actor{
-			infoLogger:  log.Info().Caller(),
-			errorLogger: log.Error().Caller(),
+			infoLogger:  log.Info(),
+			errorLogger: log.Error(),
 		},
 		settings: settings,
 		kv:       settings.GetKV(),
