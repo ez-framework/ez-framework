@@ -167,10 +167,6 @@ func (actor *Actor) Publish(key string, data []byte) error {
 			Msg("failed to publish to JetStream")
 	}
 
-	actor.infoLogger.
-		Str("publish.key", key).
-		Msg("published to JetStream")
-
 	return err
 }
 

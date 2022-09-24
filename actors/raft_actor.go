@@ -60,6 +60,7 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft.OnClosed = actor.OnClosed
 }
 
+// updateHandler receives a new raft config, and starts participating in Raft quorum
 func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	configBytes := msg.Data
 
@@ -79,7 +80,7 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 		conf.HTTPAddr = actor.actorConfig.HTTPAddr
 	}
 
-	// If there is an existing RaftNode, close it.
+	// If there is an existing Raft node, close it.
 	if actor.Raft != nil {
 		actor.Raft.Close()
 	}
@@ -95,8 +96,9 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.Raft.RunSubscriberAsync()
 }
 
-// deleteHandler listens to DELETE command and do something
+// deleteHandler listens to DELETE command and stop participating in Raft quorum
 func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
+	// Stop listening to JetStream config changes.
 	err := actor.Unsubscribe()
 	if err != nil {
 		actor.errorLogger.Err(err).
@@ -105,6 +107,7 @@ func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
 			Msg("failed to unsubscribe from subjects")
 	}
 
+	// Close the raft
 	if actor.Raft != nil {
 		actor.Raft.Close()
 	}

@@ -72,6 +72,7 @@ type Raft struct {
 	NatsAddr            string
 	HTTPAddr            string
 
+	ExitChan            chan bool
 	ErrChan             chan error
 	StateChangeChan     chan graft.StateChange
 	Node                *graft.Node
@@ -132,19 +133,27 @@ func (r *Raft) RunSubscriberAsync() {
 
 	r.handleState(r.Node.State())
 
-	for {
-		select {
-		case change := <-r.StateChangeChan:
-			r.handleState(change.To)
-		case err := <-r.ErrChan:
-			logger.Err(err).Str("Method", "RunSubscriberAsync()").Msg("Received an error")
+	go func() {
+		for {
+			select {
+			case <-r.ExitChan:
+				return
+			case change := <-r.StateChangeChan:
+				println("anyone sending state change?")
+				r.handleState(change.To)
+			case err := <-r.ErrChan:
+				logger.Err(err).Str("Method", "RunSubscriberAsync()").Msg("Received an error")
+			}
 		}
-	}
+	}()
 }
 
 // Close stops participating in quorum election.
 func (r *Raft) Close() {
+	r.ExitChan <- true
+
 	r.Node.Close()
 	close(r.StateChangeChan)
 	close(r.ErrChan)
+	close(r.ExitChan)
 }

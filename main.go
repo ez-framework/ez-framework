@@ -107,6 +107,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
 	}
+	raftActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create cron scheduler as an actor
@@ -124,19 +125,20 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
 	}
+	cronActor.RunSubscriberAsync()
+	cronActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		cronActor.RunSubscriberAsync()
-		cronActor.OnBootLoadConfig()
+		println("am i here?? leader")
 		cronActor.IsLeader <- true
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
+		println("am i here?? follower")
 		cronActor.IsFollower <- true
 	}
 
-	raftActor.RunSubscriberAsync()
 	raftActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
