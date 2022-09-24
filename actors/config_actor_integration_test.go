@@ -2,12 +2,21 @@ package actors
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+
+	"github.com/ez-framework/ez-framework/configkv"
 )
+
+func init() {
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+}
 
 func TestLaunchAndSave(t *testing.T) {
 	server, nc, jetstreamContext := newNatsServer(t)
@@ -30,7 +39,7 @@ func TestLaunchAndSave(t *testing.T) {
 	// Example on how to create ConfigActor
 	configActorConfig := globalActorConfig
 	configActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    3 * time.Minute,
+		MaxAge:    3 * time.Second,
 		Retention: nats.WorkQueuePolicy,
 	}
 
@@ -38,11 +47,19 @@ func TestLaunchAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create ConfigActor")
 	}
-	configActor.RunSubscriberAsync()
 
 	// Example: Publish(ez-config.command:POST)
 	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
-	configActor.Publish("ez-config.command:POST", []byte(`{"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}`))
+
+	raftConfigPayload := []byte(`{"LogDir":"./.data/","Name":"cluster","Size":3}`)
+	payload := []byte(fmt.Sprintf(`{"ez-raft": %s}`, raftConfigPayload))
+
+	msg := &nats.Msg{
+		Subject: "ez-config.command:POST",
+		Data:    payload,
+	}
+
+	configActor.RunSubscriberSync(msg)
 
 	// Check if we saved the config.
 	inBytes, err := confkv.GetConfigBytes("ez-raft")
@@ -51,7 +68,7 @@ func TestLaunchAndSave(t *testing.T) {
 	}
 	defer confkv.KV.Delete("ez-raft")
 
-	if !bytes.Equal(inBytes, []byte(`{"LogDir":"./.data/","Name":"cluster","Size":3}`)) {
+	if !bytes.Equal(inBytes, raftConfigPayload) {
 		t.Fatalf("did not save the config correctly. Got: %s", inBytes)
 	}
 }

@@ -33,6 +33,7 @@ type ActorConfig struct {
 type IActor interface {
 	GetStreamName() string
 	RunSubscriberAsync()
+	RunSubscriberSync(msg *nats.Msg)
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	OnBootLoadConfig() error
@@ -154,21 +155,42 @@ func (actor *Actor) SetDELETESubscriber(handler func(msg *nats.Msg)) {
 // Publish data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
 func (actor *Actor) Publish(key string, data []byte) error {
-	actor.infoLogger.Msg("am i heere????? Publish " + key)
-
 	_, err := actor.jc().Publish(key, data)
 	if err != nil {
-		actor.errorLogger.Err(err).
+		actor.errorLogger.Caller().Err(err).
 			Str("publish.key", key).
 			Msg("failed to publish to JetStream")
 	}
 
+	actor.infoLogger.
+		Str("publish.key", key).
+		Msg("published to JetStream")
+
 	return err
+}
+
+// RunSubscriberSync executes the subscriber handler immediately
+func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
+	if actor.keyHasCommand(msg.Subject, "POST") {
+		if actor.postSubscriber != nil {
+			actor.postSubscriber(msg)
+		}
+	} else if actor.keyHasCommand(msg.Subject, "PUT") {
+		if actor.putSubscriber != nil {
+			actor.putSubscriber(msg)
+		}
+	} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+		if actor.deleteSubscriber != nil {
+			actor.deleteSubscriber(msg)
+		}
+	}
 }
 
 // RunSubscriberAsync listens to config changes and execute hooks
 func (actor *Actor) RunSubscriberAsync() {
-	actor.infoLogger.Msg("subscribing to nats subjects")
+	actor.infoLogger.
+		Str("subjects", actor.subscribeSubjects()).
+		Msg("subscribing to nats subjects")
 
 	var err error
 	var sub *nats.Subscription
@@ -176,35 +198,11 @@ func (actor *Actor) RunSubscriberAsync() {
 	switch actor.actorConfig.StreamConfig.Retention {
 	case nats.WorkQueuePolicy:
 		sub, err = actor.jc().QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-			if actor.keyHasCommand(msg.Subject, "POST") {
-				if actor.postSubscriber != nil {
-					actor.postSubscriber(msg)
-				}
-			} else if actor.keyHasCommand(msg.Subject, "PUT") {
-				if actor.putSubscriber != nil {
-					actor.putSubscriber(msg)
-				}
-			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-				if actor.deleteSubscriber != nil {
-					actor.deleteSubscriber(msg)
-				}
-			}
+			actor.RunSubscriberSync(msg)
 		})
 	default:
 		sub, err = actor.jc().Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
-			if actor.keyHasCommand(msg.Subject, "POST") {
-				if actor.postSubscriber != nil {
-					actor.postSubscriber(msg)
-				}
-			} else if actor.keyHasCommand(msg.Subject, "PUT") {
-				if actor.putSubscriber != nil {
-					actor.putSubscriber(msg)
-				}
-			} else if actor.keyHasCommand(msg.Subject, "DELETE") {
-				if actor.deleteSubscriber != nil {
-					actor.deleteSubscriber(msg)
-				}
-			}
+			actor.RunSubscriberSync(msg)
 		})
 	}
 

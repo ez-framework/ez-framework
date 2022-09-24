@@ -50,23 +50,15 @@ type ConfigActor struct {
 // publishToDownstreams sends configJSON to the predefined downstreams.
 // The downstreams are defined in actor.Downstreams.
 func (actor *ConfigActor) publishToDownstreams(configJSON map[string]interface{}, command string) error {
-	actor.infoLogger.Msg("am i heere????? 2.1")
-
 	configBytes, err := json.Marshal(configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to marshal config JSON")
 		return err
 	}
 
-	actor.infoLogger.Msg("am i heere????? 2.2")
-
 	// Publish the entire config to all downstreams tagged with "all"
 	for _, downstream := range actor.Downstreams["all"] {
-		actor.infoLogger.Msg("am i heere????? 2.3")
-
 		err = actor.Publish(actor.keyWithCommand(downstream, command), configBytes)
-		actor.infoLogger.Msg("am i heere????? 2.4")
-
 		if err != nil {
 			actor.errorLogger.Err(err).Str("downstream", downstream).
 				Msg("failed to push config to downstream subscribers")
@@ -111,16 +103,12 @@ func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
 			Msg("failed to unmarshal config inside RunSubscriberAsync()")
 	}
 
-	actor.infoLogger.Msg("am i heere????? 2")
-
 	// Push config to downstream subscribers.
 	err = actor.publishToDownstreams(configJSON, "POST")
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Msg("failed to published to downstreams")
 	}
-
-	actor.infoLogger.Msg("am i heere????? 3")
 
 	// ---------------------------------------------------------------------------
 	// For every config, save them in the KV store.
