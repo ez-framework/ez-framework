@@ -126,16 +126,18 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
 	}
 	cronActor.RunSubscriberAsync()
+	go cronActor.OnBecomingLeaderSync()
+	go cronActor.OnBecomingFollowerSync()
 	cronActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		println("am i here?? leader")
+		log.Debug().Msg("node is becoming a leader")
 		cronActor.IsLeader <- true
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
-		println("am i here?? follower")
+		log.Debug().Msg("node is becoming a follower")
 		cronActor.IsFollower <- true
 	}
 

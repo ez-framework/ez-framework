@@ -6,6 +6,7 @@ import (
 
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -61,6 +62,10 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		return nil, err
 	}
 
+	r.infoLogger = log.Info()
+	r.errorLogger = log.Error()
+	r.debugLogger = log.Debug()
+
 	return r, nil
 }
 
@@ -82,11 +87,14 @@ type Raft struct {
 	OnClosed            func(state graft.State)
 
 	clusterInfo graft.ClusterInfo
+	infoLogger  *zerolog.Event
+	errorLogger *zerolog.Event
+	debugLogger *zerolog.Event
 }
 
 // handleState handles the changing of Raft node's state
 func (r *Raft) handleState(state graft.State) {
-	logger := log.Info().
+	logger := r.infoLogger.
 		Str("NatsAddr", r.NatsAddr).
 		Str("ClusterName", r.Name).
 		Str("LogDir", r.LogDir).
@@ -125,7 +133,7 @@ func (r *Raft) handleState(state graft.State) {
 
 // Run initiates the quorum participation of this Raft node
 func (r *Raft) RunSubscriberAsync() {
-	logger := log.Error().
+	logger := r.errorLogger.
 		Str("NatsAddr", r.NatsAddr).
 		Str("ClusterName", r.Name).
 		Str("LogDir", r.LogDir).
@@ -139,10 +147,10 @@ func (r *Raft) RunSubscriberAsync() {
 			case <-r.ExitChan:
 				return
 			case change := <-r.StateChangeChan:
-				println("anyone sending state change?")
+				r.debugLogger.Msg("raft state changed to: " + change.To.String())
 				r.handleState(change.To)
 			case err := <-r.ErrChan:
-				logger.Err(err).Str("Method", "RunSubscriberAsync()").Msg("Received an error")
+				logger.Err(err).Caller().Msg("Received an error")
 			}
 		}
 	}()
