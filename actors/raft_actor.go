@@ -86,7 +86,7 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	actor.Raft.RunSubscriber()
+	actor.Raft.RunSubscriberAsync()
 }
 
 // deleteHandler listens to DELETE command and do something

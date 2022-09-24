@@ -74,7 +74,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
-	go configActor.RunSubscriber()
+	configActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigWSActor to push config to WS clients
@@ -89,7 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
 	}
-	go configWSActor.RunSubscriber()
+	configWSActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
@@ -119,14 +119,14 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		go cronActor.RunSubscriber()
+		go cronActor.RunSubscriberAsync()
 		cronActor.OnBootLoadConfig()
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
 		// TODO: how to stop raft?
 	}
 
-	go raftActor.RunSubscriber()
+	raftActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a generic worker as an actor
@@ -136,7 +136,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create workerActor")
 	}
 	// TODO how to assign subscriber methods?
-	go workerActor.RunSubscriber()
+	workerActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to load config on boot from KV store

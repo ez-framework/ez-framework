@@ -30,7 +30,7 @@ func TestLaunchAndSave(t *testing.T) {
 	// Example on how to create ConfigActor
 	configActorConfig := globalActorConfig
 	configActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    1 * time.Minute,
+		MaxAge:    3 * time.Minute,
 		Retention: nats.WorkQueuePolicy,
 	}
 
@@ -38,7 +38,7 @@ func TestLaunchAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create ConfigActor")
 	}
-	go configActor.RunSubscriber()
+	configActor.RunSubscriberAsync()
 
 	// Example: Publish(ez-config.command:POST)
 	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
@@ -49,8 +49,9 @@ func TestLaunchAndSave(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to fetch config from KV store")
 	}
+	defer confkv.KV.Delete("ez-raft")
 
 	if !bytes.Equal(inBytes, []byte(`{"LogDir":"./.data/","Name":"cluster","Size":3}`)) {
-		t.Fatal("did not save the config correctly")
+		t.Fatalf("did not save the config correctly. Got: %s", inBytes)
 	}
 }

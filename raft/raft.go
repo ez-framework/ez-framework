@@ -123,7 +123,7 @@ func (r *Raft) handleState(state graft.State) {
 }
 
 // Run initiates the quorum participation of this Raft node
-func (r *Raft) RunSubscriber() {
+func (r *Raft) RunSubscriberAsync() {
 	logger := log.Error().
 		Str("NatsAddr", r.NatsAddr).
 		Str("ClusterName", r.Name).
@@ -137,7 +137,7 @@ func (r *Raft) RunSubscriber() {
 		case change := <-r.StateChangeChan:
 			r.handleState(change.To)
 		case err := <-r.ErrChan:
-			logger.Err(err).Str("Method", "RunSubscriber()").Msg("Received an error")
+			logger.Err(err).Str("Method", "RunSubscriberAsync()").Msg("Received an error")
 		}
 	}
 }

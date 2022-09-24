@@ -32,7 +32,7 @@ type ActorConfig struct {
 // IActor is the interface to conform to for all actors
 type IActor interface {
 	GetStreamName() string
-	RunSubscriber()
+	RunSubscriberAsync()
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	OnBootLoadConfig() error
@@ -148,6 +148,8 @@ func (actor *Actor) SetDELETESubscriber(handler func(msg *nats.Msg)) {
 // Publish data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
 func (actor *Actor) Publish(key string, data []byte) error {
+	actor.infoLogger.Msg("am i heere????? Publish " + key)
+
 	_, err := actor.jc().Publish(key, data)
 	if err != nil {
 		actor.errorLogger.Err(err).
@@ -158,8 +160,8 @@ func (actor *Actor) Publish(key string, data []byte) error {
 	return err
 }
 
-// RunSubscriber listens to config changes and execute hooks
-func (actor *Actor) RunSubscriber() {
+// RunSubscriberAsync listens to config changes and execute hooks
+func (actor *Actor) RunSubscriberAsync() {
 	actor.infoLogger.Msg("subscribing to nats subjects")
 
 	var err error
