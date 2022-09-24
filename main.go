@@ -60,15 +60,15 @@ func main() {
 		NatsConn:         nc,
 		JetStreamContext: jetstreamContext,
 		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge: 1 * time.Minute,
+		},
 	}
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigActor
 	configActorConfig := globalActorConfig
-	configActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    1 * time.Minute,
-		Retention: nats.WorkQueuePolicy,
-	}
+	configActorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
 
 	configActor, err := actors.NewConfigActor(configActorConfig)
 	if err != nil {
@@ -79,10 +79,7 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigWSActor to push config to WS clients
 	configWSActorConfig := globalActorConfig
-	configWSActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    1 * time.Minute,
-		Retention: nats.WorkQueuePolicy,
-	}
+	configActorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
 
 	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
 
@@ -94,10 +91,6 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 	raftActorConfig := globalActorConfig
-	raftActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge: 1 * time.Minute,
-	}
-
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
@@ -106,11 +99,6 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create cron scheduler as an actor
 	cronActorConfig := globalActorConfig
-	cronActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    1 * time.Minute,
-		Retention: nats.WorkQueuePolicy,
-	}
-
 	cronActor, err := actors.NewCronActor(cronActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
@@ -119,14 +107,16 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		go cronActor.RunSubscriberAsync()
+		cronActor.RunSubscriberAsync()
 		cronActor.OnBootLoadConfig()
+		cronActor.IsLeader <- true
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
-		// TODO: how to stop raft?
+		cronActor.IsFollower <- true
 	}
 
 	raftActor.RunSubscriberAsync()
+	raftActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a generic worker as an actor
@@ -135,13 +125,12 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create workerActor")
 	}
-	// TODO how to assign subscriber methods?
+	workerActor.SetPOSTSubscriber(func(msg *nats.Msg) {
+		println("Hello world! Subject: " + msg.Subject)
+		println(string(msg.Data))
+	})
+
 	workerActor.RunSubscriberAsync()
-
-	// ---------------------------------------------------------------------------
-	// Example on how to load config on boot from KV store
-
-	raftActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor

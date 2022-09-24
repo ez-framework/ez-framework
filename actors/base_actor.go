@@ -32,8 +32,11 @@ type ActorConfig struct {
 // IActor is the interface to conform to for all actors
 type IActor interface {
 	GetStreamName() string
+
 	RunSubscriberAsync()
 	RunSubscriberSync(msg *nats.Msg)
+	Unsubscribe() error
+
 	Publish(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	OnBootLoadConfig() error
@@ -124,8 +127,8 @@ func (actor *Actor) keyHasCommand(key, command string) bool {
 	return strings.HasSuffix(key, ".command:"+command)
 }
 
-// unsubscribeFromOnConfigUpdate
-func (actor *Actor) unsubscribeFromOnConfigUpdate() error {
+// Unsubscribe from stream
+func (actor *Actor) Unsubscribe() error {
 	if actor.subscription != nil {
 		return actor.subscription.Unsubscribe()
 	}
@@ -133,6 +136,7 @@ func (actor *Actor) unsubscribeFromOnConfigUpdate() error {
 	return nil
 }
 
+// GetStreamName returns the stream name that the actor subscribed to.
 func (actor *Actor) GetStreamName() string {
 	return actor.streamName
 }

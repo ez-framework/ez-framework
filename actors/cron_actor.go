@@ -26,6 +26,14 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		CronCollection: cron.NewCronCollection(actorConfig.JetStreamContext),
+		IsLeader:       make(chan bool),
+		IsFollower:     make(chan bool),
+	}
+
+	// CronActor cannot use nats.WorkQueuePolicy.
+	// Config must be published to all subscribers because we don't know which instance is the leader.
+	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
+		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
 	err := actor.setupStream()
@@ -43,8 +51,11 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 type CronActor struct {
 	Actor
 	CronCollection *cron.CronCollection
+	IsLeader       chan bool
+	IsFollower     chan bool
 }
 
+// updateHandler receives a config from jetstream and update the cron configuration
 func (actor *CronActor) updateHandler(msg *nats.Msg) {
 	configBytes := msg.Data
 
@@ -56,19 +67,21 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 		return
 	}
 
-	actor.CronCollection.Update(conf)
-
+	// Save the config in KV store first before updating CronCollection.
 	_, err = actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to save config")
 		return
 	}
 
-	// TODO: We need to check of this instance is the leader
-	actor.CronCollection.Run(conf)
+	// Update CronCollection's config in memory
+	actor.CronCollection.Update(conf)
+
+	// We are not running the new cron scheduler yet.
+	// That job is handled by OnBecomingLeaderSync.
 }
 
-// deleteHandler listens to DELETE command and do something
+// deleteHandler listens to DELETE command and removes this particular cron scheduler
 func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 	configBytes := msg.Data
 
@@ -80,23 +93,40 @@ func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 		return
 	}
 
-	actor.CronCollection.Delete(conf)
-
 	err = actor.kv().Delete(actor.streamName + "." + conf.ID)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to delete config")
 		return
 	}
 
-	err = actor.unsubscribeFromOnConfigUpdate()
-	if err != nil {
-		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
-			Msg("failed to unsubscribe from subjects")
+	actor.CronCollection.Delete(conf)
+
+	// We still want to subscribe to jetstream to listen to more config changes
+}
+
+// Unsubscribe from stream
+func (actor *CronActor) Unsubscribe() (err error) {
+	if actor.subscription != nil {
+		err = actor.subscription.Unsubscribe()
 	}
 
-	actor.CronCollection.Stop()
+	return err
+}
+
+// OnBecomingLeaderSync turn on all cron schedulers.
+func (actor *CronActor) OnBecomingLeaderSync() {
+	for {
+		<-actor.IsLeader
+		actor.CronCollection.BecomesLeader()
+	}
+}
+
+// OnBecomingFollowerSync turn off all cron schedulers.
+func (actor *CronActor) OnBecomingFollowerSync() {
+	for {
+		<-actor.IsFollower
+		actor.CronCollection.BecomesFollower()
+	}
 }
 
 // OnBootLoadConfig loads cron config from KV store and notify the listener to setup cron schedulers.

@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// CronConfig is the setting for cronjob
 type CronConfig struct {
 	ID          string
 	Schedule    string
@@ -16,6 +17,7 @@ type CronConfig struct {
 	WorkerQueue string
 }
 
+// NewCronCollection is the constructor for CronCollection
 func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
 	return &CronCollection{
 		jc:             jc,
@@ -25,19 +27,19 @@ func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
 	}
 }
 
-// CronCollection
+// CronCollection holds a collection of cron schedulers.
 type CronCollection struct {
+	isLeader       bool
+	isFollower     bool
 	c              map[string]*gocron.Scheduler
 	confCollection map[string]CronConfig
 	jc             nats.JetStreamContext
 	errorLogger    *zerolog.Event
 }
 
+// Update receives config update from jetstream and configure the cron scheduler
 func (collection *CronCollection) Update(config CronConfig) {
-	existing, ok := collection.c[config.ID]
-	if ok {
-		existing.Stop()
-	}
+	collection.Delete(config)
 
 	scheduler := gocron.NewScheduler(time.UTC) // TODO: elegantly assign timezone based on config
 	scheduler = scheduler.Cron(config.Schedule)
@@ -57,10 +59,23 @@ func (collection *CronCollection) Update(config CronConfig) {
 	})
 }
 
-func (collection *CronCollection) Run(config CronConfig) {
-	collection.c[config.ID].StartAsync()
+// BecomesLeader keep track of leader/follower state
+func (collection *CronCollection) BecomesLeader() {
+	collection.isLeader = true
+	collection.isFollower = false
+
+	collection.StartAll()
 }
 
+// BecomesFollower keep track of leader/follower state
+func (collection *CronCollection) BecomesFollower() {
+	collection.isLeader = true
+	collection.isFollower = false
+
+	collection.StopAll()
+}
+
+// Delete a cron scheduler configuration
 func (collection *CronCollection) Delete(config CronConfig) {
 	existing, ok := collection.c[config.ID]
 	if ok {
@@ -70,9 +85,21 @@ func (collection *CronCollection) Delete(config CronConfig) {
 	}
 }
 
-func (collection *CronCollection) Stop() {
+// StopAll cron schedulers.
+func (collection *CronCollection) StopAll() {
+	for _, existing := range collection.c {
+		existing.Stop()
+	}
 }
 
+// StartAll cron schedulers.
+func (collection *CronCollection) StartAll() {
+	for _, existing := range collection.c {
+		existing.StartAsync()
+	}
+}
+
+// AllConfigs shows all cron configurations.
 func (collection *CronCollection) AllConfigs() map[string]CronConfig {
 	return collection.confCollection
 }

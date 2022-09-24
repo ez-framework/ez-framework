@@ -54,6 +54,7 @@ type ConfigWSServerActor struct {
 
 func (actor *ConfigWSServerActor) updateHandler(msg *nats.Msg) {
 	// TODO: We can strip out certain config keys in the future
+	// IoT daemons don't need to know all of the configs.
 
 	// 1. Unpack the config received
 	config := make(map[string]any)
@@ -88,7 +89,7 @@ func (actor *ConfigWSServerActor) updateHandler(msg *nats.Msg) {
 
 // deleteHandler listens to DELETE command and do something
 func (actor *ConfigWSServerActor) deleteHandler(msg *nats.Msg) {
-	err := actor.unsubscribeFromOnConfigUpdate()
+	err := actor.Unsubscribe()
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Err(err).

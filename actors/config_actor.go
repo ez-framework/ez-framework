@@ -172,7 +172,7 @@ func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 
 	// ---------------------------------------------------------------------------
 
-	err = actor.unsubscribeFromOnConfigUpdate()
+	err = actor.Unsubscribe()
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Err(err).

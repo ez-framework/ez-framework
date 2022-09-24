@@ -24,6 +24,12 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		},
 	}
 
+	// RaftActor cannot use nats.WorkQueuePolicy.
+	// Config must be published to all subscribers because we don't know which instance is the leader.
+	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
+		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
+	}
+
 	err := actor.setupStream()
 	if err != nil {
 		return nil, err
@@ -91,7 +97,7 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 
 // deleteHandler listens to DELETE command and do something
 func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
-	err := actor.unsubscribeFromOnConfigUpdate()
+	err := actor.Unsubscribe()
 	if err != nil {
 		actor.errorLogger.Err(err).
 			Err(err).

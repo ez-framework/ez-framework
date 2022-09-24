@@ -28,19 +28,15 @@ func TestLaunchAndSave(t *testing.T) {
 	}
 
 	// ---------------------------------------------------------------------------
-	// common configuration for all actors
-	globalActorConfig := ActorConfig{
+	// Example on how to create ConfigActor
+	configActorConfig := ActorConfig{
 		NatsConn:         nc,
 		JetStreamContext: jetstreamContext,
 		ConfigKV:         confkv,
-	}
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigActor
-	configActorConfig := globalActorConfig
-	configActorConfig.StreamConfig = &nats.StreamConfig{
-		MaxAge:    3 * time.Second,
-		Retention: nats.WorkQueuePolicy,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge:    3 * time.Second,
+			Retention: nats.WorkQueuePolicy,
+		},
 	}
 
 	configActor, err := NewConfigActor(configActorConfig)
@@ -48,8 +44,12 @@ func TestLaunchAndSave(t *testing.T) {
 		t.Fatal("failed to create ConfigActor")
 	}
 
+	// Sending a config payload to be stored in KV store.
+	// In the real world, we are using the RunSubscriberAsync() to execute changes
+	// and Publish() to send update.
 	// Example: Publish(ez-config.command:POST)
 	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
+	// But for testing, we'll do it synchronously.
 
 	raftConfigPayload := []byte(`{"LogDir":"./.data/","Name":"cluster","Size":3}`)
 	payload := []byte(fmt.Sprintf(`{"ez-raft": %s}`, raftConfigPayload))
