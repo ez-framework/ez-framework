@@ -71,7 +71,7 @@ func (actor *Actor) setupStream() error {
 	}
 
 	actor.actorConfig.StreamConfig.Name = actor.streamName
-	actor.actorConfig.StreamConfig.Subjects = append(actor.actorConfig.StreamConfig.Subjects, actor.streamName+".>")
+	actor.actorConfig.StreamConfig.Subjects = append(actor.actorConfig.StreamConfig.Subjects, actor.subscribeSubjects())
 
 	_, err := actor.jc().AddStream(actor.actorConfig.StreamConfig)
 	if err != nil {
@@ -82,6 +82,7 @@ func (actor *Actor) setupStream() error {
 		if err != nil {
 			actor.errorLogger.Caller().Err(err).
 				Str("stream.name", actor.streamName).
+				Str("subjects", actor.subscribeSubjects()).
 				Msg("failed to create or get a stream")
 
 			return err

@@ -53,23 +53,18 @@ func main() {
 	}
 
 	// ---------------------------------------------------------------------------
-	// common configuration for all actors
-	globalActorConfig := actors.ActorConfig{
+	// Example on how to create ConfigActor
+	configActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
 		NatsConn:         nc,
 		JetStreamContext: jetstreamContext,
 		ConfigKV:         confkv,
 		StreamConfig: &nats.StreamConfig{
-			MaxAge: 1 * time.Minute,
+			MaxAge:    1 * time.Minute,
+			Retention: nats.WorkQueuePolicy,
 		},
 	}
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigActor
-	configActorConfig := globalActorConfig
-	configActorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
-
 	configActor, err := actors.NewConfigActor(configActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create ConfigActor")
@@ -78,9 +73,17 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigWSActor to push config to WS clients
-	configWSActorConfig := globalActorConfig
-	configActorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
-
+	configWSActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge:    1 * time.Minute,
+			Retention: nats.WorkQueuePolicy,
+		},
+	}
 	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
 
 	if err != nil {
@@ -90,7 +93,16 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
-	raftActorConfig := globalActorConfig
+	raftActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge: 1 * time.Minute,
+		},
+	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create raftActor")
@@ -98,7 +110,16 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create cron scheduler as an actor
-	cronActorConfig := globalActorConfig
+	cronActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge: 1 * time.Minute,
+		},
+	}
 	cronActor, err := actors.NewCronActor(cronActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cronActor")
@@ -120,8 +141,18 @@ func main() {
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create a generic worker as an actor
-
-	workerActor, err := actors.NewWorkerActor(globalActorConfig, "hello")
+	workerActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge:    1 * time.Minute,
+			Retention: nats.WorkQueuePolicy,
+		},
+	}
+	workerActor, err := actors.NewWorkerActor(workerActorConfig, "hello")
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create workerActor")
 	}

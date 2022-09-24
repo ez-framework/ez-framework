@@ -13,7 +13,7 @@ import (
 
 // NewConfigActor is the constructor for *ConfigActor
 func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
-	name := "ez-config"
+	name := "ez-configkv"
 
 	actor := &ConfigActor{
 		Actor: Actor{
