@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/ez-framework/ez-framework/configkv"
+	"github.com/ez-framework/ez-framework/http_logs"
 )
 
 // ActorConfig is the config that all actors need
@@ -29,6 +31,8 @@ type ActorConfig struct {
 
 	// ConfigKV is the KV store available for all actors.
 	ConfigKV *configkv.ConfigKV
+
+	LogsStreamConfig *nats.StreamConfig
 }
 
 // IActor is the interface to conform to for all actors
@@ -68,9 +72,41 @@ type Actor struct {
 
 // setupLoggers
 func (actor *Actor) setupLoggers() {
-	outLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	errLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	dbgLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	var infoWriter io.Writer
+	var errorWriter io.Writer
+	var debugWriter io.Writer
+
+	infoWriter = os.Stdout
+	errorWriter = os.Stderr
+	debugWriter = os.Stderr
+
+	// if actor.actorConfig.LogsStreamConfig, we also pipe logs to Nats
+	if actor.actorConfig.LogsStreamConfig != nil {
+		for _, logLevel := range []string{"info", "error", "debug"} {
+			natsLogger, err := http_logs.NewHTTPLogs(http_logs.HTTPLogsConfig{
+				LogLevel:         logLevel,
+				JetStreamContext: actor.jc(),
+				StreamConfig:     actor.actorConfig.LogsStreamConfig,
+			})
+			if err != nil {
+				actor.errorLogger.Err(err).Msg("failed to create nats logger")
+				continue
+			}
+
+			switch logLevel {
+			case "info":
+				infoWriter = io.MultiWriter(os.Stdout, natsLogger)
+			case "error":
+				errorWriter = io.MultiWriter(os.Stderr, natsLogger)
+			case "debug":
+				debugWriter = io.MultiWriter(os.Stderr, natsLogger)
+			}
+		}
+	}
+
+	outLog := zerolog.New(zerolog.ConsoleWriter{Out: infoWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	errLog := zerolog.New(zerolog.ConsoleWriter{Out: errorWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	dbgLog := zerolog.New(zerolog.ConsoleWriter{Out: debugWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 
 	actor.infoLogger = outLog.Info().
 		Str("stream.name", actor.streamName).
@@ -118,7 +154,7 @@ func (actor *Actor) subscribeSubjects() string {
 	return actor.streamName + ".>"
 }
 
-// kv gets the underlying KV store
+// jc gets the JetStreamContext
 func (actor *Actor) jc() nats.JetStreamContext {
 	return actor.actorConfig.JetStreamContext
 }

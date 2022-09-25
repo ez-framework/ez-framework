@@ -15,6 +15,7 @@ import (
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/cron"
+	"github.com/ez-framework/ez-framework/http_logs"
 	"github.com/ez-framework/ez-framework/raft"
 )
 
@@ -54,6 +55,10 @@ func main() {
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to setup KV store")
 	}
+
+	// ---------------------------------------------------------------------------
+
+	logStreamMaxAge := 10 * time.Minute
 
 	// ---------------------------------------------------------------------------
 	// Example on how to create ConfigActor
@@ -104,6 +109,9 @@ func main() {
 		ConfigKV:         confkv,
 		StreamConfig: &nats.StreamConfig{
 			MaxAge: 1 * time.Minute,
+		},
+		LogsStreamConfig: &nats.StreamConfig{
+			MaxAge: logStreamMaxAge,
 		},
 	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
@@ -195,11 +203,22 @@ func main() {
 	r.Method("PUT", "/api/admin/cron", cronActor)
 	r.Method("DELETE", "/api/admin/cron", cronActor)
 
-	// GET method is handled by the underlying Raft struct
+	// GET method for raft metadata is handled by the underlying Raft struct
 	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
 
-	// GET method is handled by the underlying CronCollection struct
+	// GET method for displaying cron metadata is handled by the underlying CronCollection struct
 	r.Method("GET", "/api/admin/cron", cron.NewCronCollectionHTTPGet(cronActor.CronCollection))
+
+	// GET method for displaying logs
+	natsLogger, err := http_logs.NewHTTPLogs(http_logs.HTTPLogsConfig{
+		JetStreamContext: jetstreamContext,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge: logStreamMaxAge,
+		},
+	})
+	if err == nil {
+		r.Method("GET", "/api/admin/logs", natsLogger)
+	}
 
 	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)
