@@ -29,6 +29,10 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 		return nil, err
 	}
 
+	if actor.actorConfig.WaitGroup != nil {
+		actor.actorConfig.WaitGroup.Add(1)
+	}
+
 	return actor, nil
 }
 

@@ -1,21 +1,28 @@
 package actors
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 
 	"github.com/ez-framework/ez-framework/configkv"
+	"github.com/ez-framework/ez-framework/http_helpers"
 	"github.com/ez-framework/ez-framework/http_logs"
 )
 
 // ActorConfig is the config that all actors need
 type ActorConfig struct {
+	WaitGroup *sync.WaitGroup
+
+	Context context.Context
+
 	// HTTPAddr is the address to bind the HTTP server
 	HTTPAddr string
 
@@ -64,6 +71,7 @@ type Actor struct {
 	postSubscriber   func(msg *nats.Msg)
 	putSubscriber    func(msg *nats.Msg)
 	deleteSubscriber func(msg *nats.Msg)
+	unsubSubscriber  func(msg *nats.Msg)
 	subscription     *nats.Subscription
 	infoLogger       *zerolog.Event
 	errorLogger      *zerolog.Event
@@ -142,6 +150,15 @@ func (actor *Actor) setupStream() error {
 
 			return err
 		}
+	}
+
+	// Setup unsubscribe handler
+	actor.unsubSubscriber = func(msg *nats.Msg) {
+		if actor.actorConfig.WaitGroup != nil {
+			defer actor.actorConfig.WaitGroup.Done()
+		}
+
+		actor.Unsubscribe()
 	}
 
 	return nil
@@ -227,17 +244,22 @@ func (actor *Actor) Publish(key string, data []byte) error {
 
 // RunSubscriberSync executes the subscriber handler immediately
 func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
-	if actor.keyHasCommand(msg.Subject, "POST") {
+	switch {
+	case actor.keyHasCommand(msg.Subject, "POST"):
 		if actor.postSubscriber != nil {
 			actor.postSubscriber(msg)
 		}
-	} else if actor.keyHasCommand(msg.Subject, "PUT") {
+	case actor.keyHasCommand(msg.Subject, "PUT"):
 		if actor.putSubscriber != nil {
 			actor.putSubscriber(msg)
 		}
-	} else if actor.keyHasCommand(msg.Subject, "DELETE") {
+	case actor.keyHasCommand(msg.Subject, "DELETE"):
 		if actor.deleteSubscriber != nil {
 			actor.deleteSubscriber(msg)
+		}
+	case actor.keyHasCommand(msg.Subject, "UNSUB"):
+		if actor.unsubSubscriber != nil {
+			actor.unsubSubscriber(msg)
 		}
 	}
 }
@@ -245,6 +267,7 @@ func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
 // RunSubscriberAsync listens to config changes and execute hooks
 func (actor *Actor) RunSubscriberAsync() {
 	actor.infoLogger.Msg("subscribing to nats subjects")
+	defer actor.actorConfig.WaitGroup.Done()
 
 	var err error
 	var sub *nats.Subscription
@@ -274,7 +297,23 @@ func (actor *Actor) OnBootLoadConfig() error {
 	return nil
 }
 
-// ServeHTTP
-func (actor *Actor) ServeHTTP(http.ResponseWriter, *http.Request) {
-	actor.infoLogger.Msg("ServeHTTP() is not implemented")
+// ServeHTTP supports updating, deleting, and subscribing via HTTP.
+// Actor's HTTP handler always support only POST, PUT, DELETE, and UNSUB
+// HTTP GET should only be supported by the underlying struct.
+// Override this method if you want to do something custom.
+func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	configJSONBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), configJSONBytes)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write([]byte(`{"status":"success"}`))
 }

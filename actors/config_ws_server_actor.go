@@ -39,7 +39,11 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetDELETESubscriber(actor.updateHandler)
+
+	if actor.actorConfig.WaitGroup != nil {
+		actor.actorConfig.WaitGroup.Add(1)
+	}
 
 	return actor, nil
 }
@@ -83,17 +87,6 @@ func (actor *ConfigWSServerActor) updateHandler(msg *nats.Msg) {
 	}
 
 	actor.configReceiverChan <- configWithEnvelopeBytes
-}
-
-// deleteHandler listens to DELETE command and do something
-func (actor *ConfigWSServerActor) deleteHandler(msg *nats.Msg) {
-	err := actor.Unsubscribe()
-	if err != nil {
-		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
-			Msg("failed to unsubscribe from subjects")
-	}
 }
 
 // ServeHTTP is a websocket HTTTP handler.

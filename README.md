@@ -22,12 +22,16 @@ The only dependency is Nats.
 
   * Each Actor must stop cleanly if needed to.
 
-    * DELETE command must work for all actor to listen to. And it should respond by stopping the subscription.
-
   * Tests.
 
   * Godoc.
 
-* Security: LDAP ready with concepts of groups.
 
-* Security: Custom username+password via basic auth.
+## Problems
+
+1. Not enough HTTP VERB
+
+  * We need explicit UNSUB command.
+
+    * We need it to call wg.Done()
+

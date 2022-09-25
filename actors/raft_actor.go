@@ -38,6 +38,10 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
 
+	if actor.actorConfig.WaitGroup != nil {
+		actor.actorConfig.WaitGroup.Add(1)
+	}
+
 	return actor, nil
 }
 

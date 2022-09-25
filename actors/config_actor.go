@@ -3,11 +3,8 @@ package actors
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
 
 	"github.com/nats-io/nats.go"
-
-	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
 // NewConfigActor is the constructor for *ConfigActor
@@ -37,6 +34,10 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
+
+	if actor.actorConfig.WaitGroup != nil {
+		actor.actorConfig.WaitGroup.Add(1)
+	}
 
 	return actor, nil
 }
@@ -168,42 +169,4 @@ func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 			return
 		}
 	}
-
-	// ---------------------------------------------------------------------------
-
-	err = actor.Unsubscribe()
-	if err != nil {
-		actor.errorLogger.Err(err).
-			Msg("failed to unsubscribe from subjects")
-	}
-}
-
-// ServeHTTP supports updating and deleting via HTTP.
-// Actor's HTTP handler onlu supports POST, PUT, and DELETE.
-// HTTP GET should only be supported by the underlying struct.
-func (actor *ConfigActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	content := make(map[string]interface{})
-
-	err := json.NewDecoder(r.Body).Decode(&content)
-	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
-		return
-	}
-
-	originalJSONBytes, err := json.Marshal(content)
-	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
-		return
-	}
-
-	// Example: Publish(ez-config.command:POST)
-	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), originalJSONBytes)
-	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Write([]byte(`{"status":"success"}`))
 }
