@@ -6,7 +6,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
@@ -26,13 +25,12 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
-			debugLogger: log.Debug().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		configReceiverChan: make(chan []byte),
 	}
+
+	actor.setupLoggers()
 
 	err := actor.setupStream()
 	if err != nil {

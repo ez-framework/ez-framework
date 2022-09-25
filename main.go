@@ -11,7 +11,6 @@ import (
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
@@ -19,8 +18,12 @@ import (
 	"github.com/ez-framework/ez-framework/raft"
 )
 
+var outLog zerolog.Logger
+var errLog zerolog.Logger
+
 func init() {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	outLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	errLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 }
 
 func main() {
@@ -35,13 +38,13 @@ func main() {
 
 	nc, err := nats.Connect(*natsAddr)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to connect to nats")
+		errLog.Fatal().Err(err).Msg("failed to connect to nats")
 	}
 	defer nc.Close()
 
 	jetstreamContext, err := nc.JetStream()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to get jetstream context")
+		errLog.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
 
 	// ---------------------------------------------------------------------------
@@ -49,7 +52,7 @@ func main() {
 
 	confkv, err := configkv.NewConfigKV(jetstreamContext)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to setup KV store")
+		errLog.Fatal().Err(err).Msg("failed to setup KV store")
 	}
 
 	// ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ func main() {
 	}
 	configActor, err := actors.NewConfigActor(configActorConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create ConfigActor")
+		errLog.Fatal().Err(err).Msg("failed to create ConfigActor")
 	}
 	configActor.RunSubscriberAsync()
 
@@ -87,7 +90,7 @@ func main() {
 	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
 
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create ConfigWSActor")
+		errLog.Fatal().Err(err).Msg("failed to create ConfigWSActor")
 	}
 	configWSActor.RunSubscriberAsync()
 
@@ -105,7 +108,7 @@ func main() {
 	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create raftActor")
+		errLog.Fatal().Err(err).Msg("failed to create raftActor")
 	}
 	raftActor.RunSubscriberAsync()
 
@@ -123,7 +126,7 @@ func main() {
 	}
 	cronActor, err := actors.NewCronActor(cronActorConfig)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create cronActor")
+		errLog.Fatal().Err(err).Msg("failed to create cronActor")
 	}
 	cronActor.RunSubscriberAsync()
 	go cronActor.OnBecomingLeaderSync()
@@ -133,11 +136,11 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		log.Debug().Msg("node is becoming a leader")
+		errLog.Debug().Msg("node is becoming a leader")
 		cronActor.IsLeader <- true
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
-		log.Debug().Msg("node is becoming a follower")
+		errLog.Debug().Msg("node is becoming a follower")
 		cronActor.IsFollower <- true
 	}
 
@@ -158,11 +161,10 @@ func main() {
 	}
 	workerActor, err := actors.NewWorkerActor(workerActorConfig, "hello")
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create workerActor")
+		errLog.Fatal().Err(err).Msg("failed to create workerActor")
 	}
 	workerActor.SetPOSTSubscriber(func(msg *nats.Msg) {
-		println("Hello world! Subject: " + msg.Subject)
-		println(string(msg.Data))
+		outLog.Info().Str("subject", msg.Subject).Bytes("content", msg.Data).Msg("hello world!")
 	})
 
 	workerActor.RunSubscriberAsync()
@@ -199,6 +201,6 @@ func main() {
 	// GET method is handled by the underlying CronCollection struct
 	r.Method("GET", "/api/admin/cron", cron.NewCronCollectionHTTPGet(cronActor.CronCollection))
 
-	log.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
+	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	http.ListenAndServe(*httpAddr, r)
 }

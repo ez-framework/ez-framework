@@ -2,7 +2,6 @@ package actors
 
 import (
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog/log"
 )
 
 // NewWorkerActor is the constructor for WorkerActor
@@ -13,8 +12,6 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 	}
@@ -24,6 +21,8 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 	if actor.actorConfig.StreamConfig.Retention != nats.WorkQueuePolicy {
 		actor.actorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
 	}
+
+	actor.setupLoggers()
 
 	err := actor.setupStream()
 	if err != nil {

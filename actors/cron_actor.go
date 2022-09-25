@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/cron"
 	"github.com/ez-framework/ez-framework/http_helpers"
@@ -21,8 +20,6 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		CronCollection: cron.NewCronCollection(actorConfig.JetStreamContext),
@@ -35,6 +32,8 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
+
+	actor.setupLoggers()
 
 	err := actor.setupStream()
 	if err != nil {

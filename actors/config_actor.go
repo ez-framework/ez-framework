@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
@@ -19,8 +18,6 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 		Downstreams: map[string][]string{
@@ -29,8 +26,11 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		},
 	}
 
+	actor.setupLoggers()
+
 	err := actor.setupStream()
 	if err != nil {
+		actor.errorLogger.Caller().Err(err).Msg("failed to setup stream")
 		return nil, err
 	}
 
@@ -149,7 +149,6 @@ func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).
-			Err(err).
 			Msg("failed to unmarshal config inside RunSubscriberAsync()")
 	}
 
@@ -175,8 +174,6 @@ func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 	err = actor.Unsubscribe()
 	if err != nil {
 		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
 			Msg("failed to unsubscribe from subjects")
 	}
 }

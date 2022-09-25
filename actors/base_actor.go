@@ -2,7 +2,9 @@ package actors
 
 import (
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -64,6 +66,25 @@ type Actor struct {
 	debugLogger      *zerolog.Event
 }
 
+// setupLoggers
+func (actor *Actor) setupLoggers() {
+	outLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	errLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	dbgLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+
+	actor.infoLogger = outLog.Info().
+		Str("stream.name", actor.streamName).
+		Str("stream.subjects", actor.subscribeSubjects())
+
+	actor.errorLogger = errLog.Error().
+		Str("stream.name", actor.streamName).
+		Str("stream.subjects", actor.subscribeSubjects())
+
+	actor.debugLogger = dbgLog.Debug().
+		Str("stream.name", actor.streamName).
+		Str("stream.subjects", actor.subscribeSubjects())
+}
+
 // setupStream creates a dedicated stream for this actor
 func (actor *Actor) setupStream() error {
 	if actor.actorConfig.StreamConfig == nil {
@@ -81,8 +102,6 @@ func (actor *Actor) setupStream() error {
 
 		if err != nil {
 			actor.errorLogger.Caller().Err(err).
-				Str("stream.name", actor.streamName).
-				Str("subjects", actor.subscribeSubjects()).
 				Msg("failed to create or get a stream")
 
 			return err
@@ -189,9 +208,7 @@ func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
 
 // RunSubscriberAsync listens to config changes and execute hooks
 func (actor *Actor) RunSubscriberAsync() {
-	actor.infoLogger.
-		Str("subjects", actor.subscribeSubjects()).
-		Msg("subscribing to nats subjects")
+	actor.infoLogger.Msg("subscribing to nats subjects")
 
 	var err error
 	var sub *nats.Subscription
@@ -211,10 +228,7 @@ func (actor *Actor) RunSubscriberAsync() {
 		actor.subscription = sub
 
 	} else {
-		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
-			Msg("failed to subscribe to subjects")
+		actor.errorLogger.Err(err).Msg("failed to subscribe to subjects")
 	}
 }
 

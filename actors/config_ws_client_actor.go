@@ -4,19 +4,19 @@ import (
 	"encoding/json"
 
 	"github.com/gorilla/websocket"
-	"github.com/rs/zerolog/log"
 )
 
 // NewConfigWSClientActor is the constructor for *ConfigWSClientActor
 func NewConfigWSClientActor(settings IConfigWSClientActorSettings) (*ConfigWSClientActor, error) {
 	actor := &ConfigWSClientActor{
-		Actor: Actor{
-			infoLogger:  log.Info(),
-			errorLogger: log.Error(),
-		},
 		settings: settings,
 		kv:       settings.GetKV(),
 	}
+
+	actor.setupLoggers()
+	actor.infoLogger = actor.infoLogger.Str("ws.url", settings.GetWSURL())
+	actor.errorLogger = actor.errorLogger.Str("ws.url", settings.GetWSURL())
+	actor.debugLogger = actor.debugLogger.Str("ws.url", settings.GetWSURL())
 
 	// TODO: Always try to reconnect
 	conn, _, err := websocket.DefaultDialer.Dial(settings.GetWSURL(), nil)
@@ -38,9 +38,7 @@ type ConfigWSClientActor struct {
 
 // RunSubscriberAsync listens to config changes and update the storage
 func (actor *ConfigWSClientActor) RunSubscriberAsync() {
-	actor.infoLogger.
-		Str("ws.url", actor.settings.GetWSURL()).
-		Msg("subscribing to websocket")
+	actor.infoLogger.Msg("subscribing to websocket")
 
 	for {
 		_, configWithEnvelopeBytes, err := actor.wsConn.ReadMessage()

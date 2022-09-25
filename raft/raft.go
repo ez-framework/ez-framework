@@ -1,15 +1,17 @@
 package raft
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
+// ConfigRaft is the configuration to spawn a new Raft node
 type ConfigRaft struct {
 	LogDir   string
 	Name     string
@@ -18,7 +20,7 @@ type ConfigRaft struct {
 	HTTPAddr string
 }
 
-// NewRaft creates a new Raft node
+// NewRaft is the constructor for a Raft node
 func NewRaft(conf ConfigRaft) (*Raft, error) {
 	if conf.Size == 0 {
 		conf.Size = 3
@@ -28,11 +30,12 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 	}
 
 	r := &Raft{
-		Name:                conf.Name,
-		LogDir:              conf.LogDir,
-		ExpectedClusterSize: conf.Size,
-		NatsAddr:            conf.NatsAddr,
-		HTTPAddr:            conf.HTTPAddr,
+		Name:   conf.Name,
+		LogDir: conf.LogDir,
+
+		natsAddr:            conf.NatsAddr,
+		httpAddr:            conf.HTTPAddr,
+		expectedClusterSize: conf.Size,
 	}
 
 	r.ErrChan = make(chan error)
@@ -55,75 +58,87 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		logFilename = "localhost" + logFilename + ".graft.log"
 	}
 
-	logPath := filepath.Join(r.LogDir, logFilename)
+	logPath := filepath.Join(conf.LogDir, logFilename)
 
 	r.Node, err = graft.New(r.clusterInfo, handler, rpc, logPath)
 	if err != nil {
 		return nil, err
 	}
 
-	r.infoLogger = log.Info()
-	r.errorLogger = log.Error()
-	r.debugLogger = log.Debug()
+	outLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	errLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+
+	r.infoLogger = outLog.Info().
+		Str("raft.cluster.name", r.Name).
+		Int("raft.cluster.expected-size", r.expectedClusterSize).
+		Str("raft.nats.addr", r.natsAddr).
+		Str("raft.log.dir", conf.LogDir)
+
+	r.errorLogger = errLog.Error().
+		Str("raft.cluster.name", r.Name).
+		Int("raft.cluster.expected-size", r.expectedClusterSize).
+		Str("raft.nats.addr", r.natsAddr).
+		Str("raft.log.dir", conf.LogDir)
+
+	r.debugLogger = errLog.Debug().
+		Str("raft.cluster.name", r.Name).
+		Int("raft.cluster.expected-size", r.expectedClusterSize).
+		Str("raft.nats.addr", r.natsAddr).
+		Str("raft.log.dir", conf.LogDir)
 
 	return r, nil
 }
 
-// Raft is a structure that represents a Raft  node
+// Raft is a structure that represents a Raft node
 type Raft struct {
-	Name                string
-	LogDir              string
-	ExpectedClusterSize int
-	NatsAddr            string
-	HTTPAddr            string
+	Name   string
+	Node   *graft.Node
+	LogDir string
 
-	ExitChan            chan bool
-	ErrChan             chan error
-	StateChangeChan     chan graft.StateChange
-	Node                *graft.Node
+	ExitChan        chan bool
+	ErrChan         chan error
+	StateChangeChan chan graft.StateChange
+
 	OnBecomingLeader    func(state graft.State)
 	OnBecomingFollower  func(state graft.State)
 	OnBecomingCandidate func(state graft.State)
 	OnClosed            func(state graft.State)
 
-	clusterInfo graft.ClusterInfo
-	infoLogger  *zerolog.Event
-	errorLogger *zerolog.Event
-	debugLogger *zerolog.Event
+	expectedClusterSize int
+	natsAddr            string
+	httpAddr            string
+	clusterInfo         graft.ClusterInfo
+	infoLogger          *zerolog.Event
+	errorLogger         *zerolog.Event
+	debugLogger         *zerolog.Event
 }
 
 // handleState handles the changing of Raft node's state
 func (r *Raft) handleState(state graft.State) {
-	logger := r.infoLogger.
-		Str("NatsAddr", r.NatsAddr).
-		Str("ClusterName", r.Name).
-		Str("LogDir", r.LogDir).
-		Int("ExpectedClusterSize", r.ExpectedClusterSize)
-
 	switch state {
 	case graft.LEADER:
-		logger.Msg("becoming leader")
+		r.debugLogger.Msg("becoming leader")
 
 		if r.OnBecomingLeader != nil {
 			r.OnBecomingLeader(state)
 		}
 
 	case graft.FOLLOWER:
-		logger.Msg("becoming follower")
+		r.debugLogger.Msg("becoming follower")
 
 		if r.OnBecomingFollower != nil {
 			r.OnBecomingFollower(state)
 		}
 
 	case graft.CANDIDATE:
-		logger.Msg("becoming candidate")
+		r.debugLogger.Msg("becoming candidate")
 
 		if r.OnBecomingCandidate != nil {
 			r.OnBecomingCandidate(state)
 		}
 
 	case graft.CLOSED:
-		logger.Msg("Closed")
+		r.debugLogger.Msg("Closed")
 
 		if r.OnClosed != nil {
 			r.OnClosed(state)
@@ -133,12 +148,6 @@ func (r *Raft) handleState(state graft.State) {
 
 // Run initiates the quorum participation of this Raft node
 func (r *Raft) RunSubscriberAsync() {
-	logger := r.errorLogger.
-		Str("NatsAddr", r.NatsAddr).
-		Str("ClusterName", r.Name).
-		Str("LogDir", r.LogDir).
-		Int("ExpectedClusterSize", r.ExpectedClusterSize)
-
 	r.handleState(r.Node.State())
 
 	go func() {
@@ -150,7 +159,7 @@ func (r *Raft) RunSubscriberAsync() {
 				r.debugLogger.Msg("raft state changed to: " + change.To.String())
 				r.handleState(change.To)
 			case err := <-r.ErrChan:
-				logger.Err(err).Caller().Msg("Received an error")
+				r.errorLogger.Err(err).Caller().Msg("Received an error")
 			}
 		}
 	}()

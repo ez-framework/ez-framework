@@ -5,7 +5,6 @@ import (
 
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
-	"github.com/rs/zerolog/log"
 
 	"github.com/ez-framework/ez-framework/raft"
 )
@@ -18,8 +17,6 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		Actor: Actor{
 			actorConfig: actorConfig,
 			streamName:  name,
-			infoLogger:  log.Info().Str("stream.name", name),
-			errorLogger: log.Error().Str("stream.name", name),
 			ConfigKV:    actorConfig.ConfigKV,
 		},
 	}
@@ -29,6 +26,8 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
+
+	actor.setupLoggers()
 
 	err := actor.setupStream()
 	if err != nil {
