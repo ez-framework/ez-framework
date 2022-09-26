@@ -309,6 +309,7 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					actor.wg.Done()
+					actor.debugLogger.Msg("received cancellation signal. Exiting for loop")
 					return
 
 				case msg := <-actor.subscriptionChan:
