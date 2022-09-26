@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -30,9 +31,7 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
 	}
@@ -40,10 +39,6 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
-
-	if actor.actorConfig.WaitGroup != nil {
-		actor.actorConfig.WaitGroup.Add(1)
-	}
 
 	return actor, nil
 }
@@ -78,7 +73,7 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 	actor.CronCollection.Update(conf)
 
 	// We are not running the new cron scheduler yet.
-	// That job is handled by OnBecomingLeaderSync.
+	// That job is handled by OnBecomingLeaderBlocking.
 }
 
 // deleteHandler listens to DELETE command and removes this particular cron scheduler
@@ -104,19 +99,29 @@ func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 	// We still want to subscribe to jetstream to listen to more config changes
 }
 
-// OnBecomingLeaderSync turn on all cron schedulers.
-func (actor *CronActor) OnBecomingLeaderSync() {
+// OnBecomingLeaderBlocking turn on all cron schedulers.
+func (actor *CronActor) OnBecomingLeaderBlocking(ctx context.Context) {
 	for {
-		<-actor.IsLeader
-		actor.CronCollection.BecomesLeader()
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-actor.IsLeader:
+			actor.CronCollection.BecomesLeader()
+		}
 	}
 }
 
-// OnBecomingFollowerSync turn off all cron schedulers.
-func (actor *CronActor) OnBecomingFollowerSync() {
+// OnBecomingFollowerBlocking turn off all cron schedulers.
+func (actor *CronActor) OnBecomingFollowerBlocking(ctx context.Context) {
 	for {
-		<-actor.IsFollower
-		actor.CronCollection.BecomesFollower()
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-actor.IsFollower:
+			actor.CronCollection.BecomesFollower()
+		}
 	}
 }
 

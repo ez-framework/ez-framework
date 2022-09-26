@@ -27,9 +27,7 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
 	}
@@ -37,10 +35,6 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
-
-	if actor.actorConfig.WaitGroup != nil {
-		actor.actorConfig.WaitGroup.Add(1)
-	}
 
 	return actor, nil
 }
@@ -96,7 +90,7 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	actor.Raft.RunSubscriberAsync()
+	actor.Raft.RunSubscribersBlocking()
 }
 
 // deleteHandler listens to DELETE command and stop participating in Raft quorum

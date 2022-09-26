@@ -19,9 +19,8 @@ import (
 
 // ActorConfig is the config that all actors need
 type ActorConfig struct {
-	WaitGroup *sync.WaitGroup
-
-	Context context.Context
+	// Workers is the number of workers for this actor
+	Workers int
 
 	// HTTPAddr is the address to bind the HTTP server
 	HTTPAddr string
@@ -36,18 +35,18 @@ type ActorConfig struct {
 
 	StreamConfig *nats.StreamConfig
 
+	LogsStreamConfig *nats.StreamConfig
+
 	// ConfigKV is the KV store available for all actors.
 	ConfigKV *configkv.ConfigKV
-
-	LogsStreamConfig *nats.StreamConfig
 }
 
 // IActor is the interface to conform to for all actors
 type IActor interface {
 	GetStreamName() string
 
-	RunSubscriberAsync()
-	RunSubscriberSync(msg *nats.Msg)
+	RunSubscribersBlocking(context.Context)
+	RunSubscriberOnce(msg *nats.Msg)
 	Unsubscribe() error
 
 	Publish(string, []byte) error
@@ -66,16 +65,37 @@ type IActor interface {
 type Actor struct {
 	ConfigKV *configkv.ConfigKV
 
-	actorConfig      ActorConfig
 	streamName       string
+	actorConfig      ActorConfig
+	wg               sync.WaitGroup
 	postSubscriber   func(msg *nats.Msg)
 	putSubscriber    func(msg *nats.Msg)
 	deleteSubscriber func(msg *nats.Msg)
 	unsubSubscriber  func(msg *nats.Msg)
+	subscriptionChan chan *nats.Msg
 	subscription     *nats.Subscription
 	infoLogger       *zerolog.Event
 	errorLogger      *zerolog.Event
 	debugLogger      *zerolog.Event
+}
+
+// setupConstructor sets everything that needs to be setup inside the constructor
+func (actor *Actor) setupConstructor() error {
+	actor.wg = sync.WaitGroup{}
+	actor.subscriptionChan = make(chan *nats.Msg)
+
+	if actor.actorConfig.Workers == 0 {
+		actor.actorConfig.Workers = 1
+	}
+
+	actor.setupLoggers()
+
+	err := actor.setupStream()
+	if err != nil {
+		actor.errorLogger.Caller().Err(err).Msg("failed to setup stream")
+	}
+
+	return err
 }
 
 // setupLoggers
@@ -154,10 +174,6 @@ func (actor *Actor) setupStream() error {
 
 	// Setup unsubscribe handler
 	actor.unsubSubscriber = func(msg *nats.Msg) {
-		if actor.actorConfig.WaitGroup != nil {
-			defer actor.actorConfig.WaitGroup.Done()
-		}
-
 		actor.Unsubscribe()
 	}
 
@@ -242,8 +258,8 @@ func (actor *Actor) Publish(key string, data []byte) error {
 	return err
 }
 
-// RunSubscriberSync executes the subscriber handler immediately
-func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
+// RunSubscriberOnce executes the subscriber handler once synchronously
+func (actor *Actor) RunSubscriberOnce(msg *nats.Msg) {
 	switch {
 	case actor.keyHasCommand(msg.Subject, "POST"):
 		if actor.postSubscriber != nil {
@@ -264,31 +280,44 @@ func (actor *Actor) RunSubscriberSync(msg *nats.Msg) {
 	}
 }
 
-// RunSubscriberAsync listens to config changes and execute hooks
-func (actor *Actor) RunSubscriberAsync() {
+// RunSubscribersBlocking listens to config changes and execute hooks
+func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 	actor.infoLogger.Msg("subscribing to nats subjects")
-	defer actor.actorConfig.WaitGroup.Done()
 
 	var err error
 	var sub *nats.Subscription
 
-	switch actor.actorConfig.StreamConfig.Retention {
-	case nats.WorkQueuePolicy:
-		sub, err = actor.jc().QueueSubscribe(actor.subscribeSubjects(), "workers", func(msg *nats.Msg) {
-			actor.RunSubscriberSync(msg)
-		})
-	default:
-		sub, err = actor.jc().Subscribe(actor.subscribeSubjects(), func(msg *nats.Msg) {
-			actor.RunSubscriberSync(msg)
-		})
-	}
+	for i := 0; i < actor.actorConfig.Workers; i++ {
+		actor.wg.Add(1)
 
-	if err == nil {
-		actor.subscription = sub
+		switch actor.actorConfig.StreamConfig.Retention {
+		case nats.WorkQueuePolicy:
+			sub, err = actor.jc().ChanQueueSubscribe(actor.subscribeSubjects(), "workers", actor.subscriptionChan)
+		default:
+			sub, err = actor.jc().ChanSubscribe(actor.subscribeSubjects(), actor.subscriptionChan)
+		}
 
-	} else {
-		actor.errorLogger.Err(err).Msg("failed to subscribe to subjects")
+		if err == nil {
+			actor.subscription = sub
+		} else {
+			actor.errorLogger.Err(err).Msg("failed to subscribe to subjects")
+			return
+		}
+
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					actor.wg.Done()
+					return
+
+				case msg := <-actor.subscriptionChan:
+					actor.RunSubscriberOnce(msg)
+				}
+			}
+		}()
 	}
+	actor.wg.Wait()
 }
 
 // OnBootLoadConfig
@@ -308,7 +337,16 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), configJSONBytes)
+	command := ""
+
+	switch r.Method {
+	case "POST":
+		command = r.FormValue("command")
+	case "DELETE":
+		command = r.Method
+	}
+
+	err = actor.Publish(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
 		return

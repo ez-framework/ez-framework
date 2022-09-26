@@ -22,15 +22,9 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 		actor.actorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
-	}
-
-	if actor.actorConfig.WaitGroup != nil {
-		actor.actorConfig.WaitGroup.Add(1)
 	}
 
 	return actor, nil

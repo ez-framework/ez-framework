@@ -30,9 +30,7 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 		configReceiverChan: make(chan []byte),
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
 	}
@@ -40,10 +38,6 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.updateHandler)
-
-	if actor.actorConfig.WaitGroup != nil {
-		actor.actorConfig.WaitGroup.Add(1)
-	}
 
 	return actor, nil
 }

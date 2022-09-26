@@ -45,7 +45,7 @@ func TestLaunchAndSave(t *testing.T) {
 	}
 
 	// Sending a config payload to be stored in KV store.
-	// In the real world, we are using the RunSubscriberAsync() to execute changes
+	// In the real world, we are using the RunSubscribersBlocking() to execute changes
 	// and Publish() to send update.
 	// Example: Publish(ez-config.command:POST)
 	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
@@ -59,7 +59,7 @@ func TestLaunchAndSave(t *testing.T) {
 		Data:    payload,
 	}
 
-	configActor.RunSubscriberSync(msg)
+	configActor.RunSubscriberOnce(msg)
 
 	// Check if we saved the config.
 	inBytes, err := confkv.GetConfigBytes("ez-raft")

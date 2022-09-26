@@ -147,7 +147,7 @@ func (r *Raft) handleState(state graft.State) {
 }
 
 // Run initiates the quorum participation of this Raft node
-func (r *Raft) RunSubscriberAsync() {
+func (r *Raft) RunSubscribersBlocking() {
 	r.handleState(r.Node.State())
 
 	go func() {

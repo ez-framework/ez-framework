@@ -23,21 +23,14 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		},
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
-		actor.errorLogger.Caller().Err(err).Msg("failed to setup stream")
 		return nil, err
 	}
 
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
-
-	if actor.actorConfig.WaitGroup != nil {
-		actor.actorConfig.WaitGroup.Add(1)
-	}
 
 	return actor, nil
 }
@@ -101,7 +94,7 @@ func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).
-			Msg("failed to unmarshal config inside RunSubscriberAsync()")
+			Msg("failed to unmarshal config inside RunSubscribersBlocking()")
 	}
 
 	// Push config to downstream subscribers.
@@ -150,7 +143,7 @@ func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configJSONBytes, &configJSON)
 	if err != nil {
 		actor.errorLogger.Err(err).
-			Msg("failed to unmarshal config inside RunSubscriberAsync()")
+			Msg("failed to unmarshal config inside RunSubscribersBlocking()")
 	}
 
 	// Push config to downstream subscribers.
