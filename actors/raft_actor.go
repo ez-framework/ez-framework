@@ -35,6 +35,7 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 	actor.SetPOSTSubscriber(actor.updateHandler)
 	actor.SetPUTSubscriber(actor.updateHandler)
 	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetOnDoneSubscribing(actor.doneSubscribingHandler)
 
 	return actor, nil
 }
@@ -90,16 +91,17 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	actor.Raft.RunSubscribersBlocking()
+	go actor.Raft.RunSubscribersBlocking()
 }
 
 // deleteHandler listens to DELETE command and stop participating in Raft quorum
 func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
-	actor.DoneSubscribing()
+	actor.doneSubscribingHandler()
 }
 
-// DoneSubscribing
-func (actor *RaftActor) DoneSubscribing() {
+// doneSubscribingHandler
+func (actor *RaftActor) doneSubscribingHandler() {
+	println("am i called? doneSubscribingHandler()")
 	// Stop listening to JetStream config changes.
 	err := actor.Unsubscribe()
 	if err != nil {
@@ -111,6 +113,7 @@ func (actor *RaftActor) DoneSubscribing() {
 
 	// Close the raft
 	if actor.Raft != nil {
+		println("am i called? doneSubscribingHandler() Raft.Close()")
 		actor.Raft.Close()
 	}
 }

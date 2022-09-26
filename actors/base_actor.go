@@ -55,6 +55,7 @@ type IActor interface {
 	SetPOSTSubscriber(func(msg *nats.Msg))
 	SetPUTSubscriber(func(msg *nats.Msg))
 	SetDELETESubscriber(func(msg *nats.Msg))
+	SetOnDoneSubscribing(func())
 
 	jc() nats.JetStreamContext
 	kv() nats.KeyValue
@@ -65,18 +66,19 @@ type IActor interface {
 type Actor struct {
 	ConfigKV *configkv.ConfigKV
 
-	streamName       string
-	actorConfig      ActorConfig
-	wg               sync.WaitGroup
-	postSubscriber   func(msg *nats.Msg)
-	putSubscriber    func(msg *nats.Msg)
-	deleteSubscriber func(msg *nats.Msg)
-	unsubSubscriber  func(msg *nats.Msg)
-	subscriptionChan chan *nats.Msg
-	subscription     *nats.Subscription
-	infoLogger       *zerolog.Event
-	errorLogger      *zerolog.Event
-	debugLogger      *zerolog.Event
+	streamName        string
+	actorConfig       ActorConfig
+	wg                sync.WaitGroup
+	postSubscriber    func(msg *nats.Msg)
+	putSubscriber     func(msg *nats.Msg)
+	deleteSubscriber  func(msg *nats.Msg)
+	unsubSubscriber   func(msg *nats.Msg)
+	onDoneSubscribing func()
+	subscriptionChan  chan *nats.Msg
+	subscription      *nats.Subscription
+	infoLogger        *zerolog.Event
+	errorLogger       *zerolog.Event
+	debugLogger       *zerolog.Event
 }
 
 // setupConstructor sets everything that needs to be setup inside the constructor
@@ -245,6 +247,11 @@ func (actor *Actor) SetDELETESubscriber(handler func(msg *nats.Msg)) {
 	actor.deleteSubscriber = handler
 }
 
+// SetOnDoneSubscribing
+func (actor *Actor) SetOnDoneSubscribing(handler func()) {
+	actor.onDoneSubscribing = handler
+}
+
 // Publish data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
 func (actor *Actor) Publish(key string, data []byte) error {
@@ -308,7 +315,10 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 			for {
 				select {
 				case <-ctx.Done():
-					actor.DoneSubscribing()
+					if actor.onDoneSubscribing != nil {
+						actor.onDoneSubscribing()
+					}
+
 					actor.wg.Done()
 					actor.debugLogger.Msg("received cancellation signal. Exiting for loop")
 					return
@@ -320,11 +330,6 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 		}()
 	}
 	actor.wg.Wait()
-}
-
-// DoneSubscribing runs clean up command when it's done
-func (actor *Actor) DoneSubscribing() {
-	actor.debugLogger.Msg("DoneSubscribing() is not implemented")
 }
 
 // OnBootLoadConfig

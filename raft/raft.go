@@ -17,7 +17,6 @@ type ConfigRaft struct {
 	LogDir   string
 	Name     string
 	Size     int
-	Workers  int
 	NatsAddr string
 	HTTPAddr string
 }
@@ -30,15 +29,11 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 	if conf.NatsAddr == "" {
 		conf.NatsAddr = nats.DefaultURL
 	}
-	if conf.Workers == 0 {
-		conf.Workers = 10
-	}
 
 	r := &Raft{
 		Name:   conf.Name,
 		LogDir: conf.LogDir,
 
-		workers:             conf.Workers,
 		natsAddr:            conf.NatsAddr,
 		httpAddr:            conf.HTTPAddr,
 		expectedClusterSize: conf.Size,
@@ -110,7 +105,6 @@ type Raft struct {
 	OnBecomingCandidate func(state graft.State)
 	OnClosed            func(state graft.State)
 
-	workers             int
 	expectedClusterSize int
 	natsAddr            string
 	httpAddr            string
@@ -159,37 +153,38 @@ func (r *Raft) RunSubscribersBlocking() {
 
 	wg := sync.WaitGroup{}
 
-	for i := 0; i < r.workers; i++ {
-		wg.Add(1)
+	wg.Add(1)
 
-		go func() {
-			for {
-				select {
-				case <-r.ExitChan:
-					wg.Done()
-					r.debugLogger.Msg("Close() is called")
-					return
+	go func() {
+		for {
+			select {
+			case <-r.ExitChan:
+				r.debugLogger.Msg("received signal from <-r.ExitChan")
+				wg.Done()
+				return
 
-				case change := <-r.StateChangeChan:
-					r.debugLogger.Msg("raft state changed to: " + change.To.String())
-					r.handleState(change.To)
+			case change := <-r.StateChangeChan:
+				r.debugLogger.Msg("raft state changed to: " + change.To.String())
+				r.handleState(change.To)
 
-				case err := <-r.ErrChan:
-					r.errorLogger.Err(err).Caller().Msg("Received an error")
-				}
+			case err := <-r.ErrChan:
+				r.errorLogger.Err(err).Caller().Msg("Received an error")
+				return
 			}
-		}()
-	}
+		}
+	}()
 
 	wg.Wait()
 }
 
 // Close stops participating in quorum election.
 func (r *Raft) Close() {
-	r.ExitChan <- true
+	r.debugLogger.Caller().Msg("(r *Raft) Close() is called")
 
 	r.Node.Close()
 	close(r.StateChangeChan)
 	close(r.ErrChan)
+
+	r.ExitChan <- true
 	close(r.ExitChan)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
@@ -138,41 +139,41 @@ func main() {
 		return nil
 	})
 
-	// // ---------------------------------------------------------------------------
-	// // Example on how to create a raft node as an actor
-	// raftActorConfig := actors.ActorConfig{
-	// 	Workers:          10,
-	// 	NatsAddr:         *natsAddr,
-	// 	HTTPAddr:         *httpAddr,
-	// 	NatsConn:         nc,
-	// 	JetStreamContext: jetstreamContext,
-	// 	ConfigKV:         confkv,
-	// 	StreamConfig: &nats.StreamConfig{
-	// 		MaxAge: 1 * time.Minute,
-	// 	},
-	// 	LogsStreamConfig: &nats.StreamConfig{
-	// 		MaxAge: logStreamMaxAge,
-	// 	},
-	// }
-	// raftActor, err := actors.NewRaftActor(raftActorConfig)
-	// if err != nil {
-	// 	errLog.Fatal().Err(err).Msg("failed to create raftActor")
-	// }
-	// wg.Go(func() error {
-	// 	raftActor.RunSubscribersBlocking(ctx)
-	// 	return nil
-	// })
+	// ---------------------------------------------------------------------------
+	// Example on how to create a raft node as an actor
+	raftActorConfig := actors.ActorConfig{
+		Workers:          1,
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge: 1 * time.Minute,
+		},
+		LogsStreamConfig: &nats.StreamConfig{
+			MaxAge: logStreamMaxAge,
+		},
+	}
+	raftActor, err := actors.NewRaftActor(raftActorConfig)
+	if err != nil {
+		errLog.Fatal().Err(err).Msg("failed to create raftActor")
+	}
+	wg.Go(func() error {
+		raftActor.RunSubscribersBlocking(ctx)
+		return nil
+	})
 
-	// // ---------------------------------------------------------------------------
-	// // Example on how to run cron scheduler only when this service is the leader
-	// raftActor.OnBecomingLeader = func(state graft.State) {
-	// 	dbgLog.Debug().Msg("node is becoming a leader")
-	// }
-	// raftActor.OnBecomingFollower = func(state graft.State) {
-	// 	dbgLog.Debug().Msg("node is becoming a follower")
-	// }
+	// ---------------------------------------------------------------------------
+	// Example on how to run cron scheduler only when this service is the leader
+	raftActor.OnBecomingLeader = func(state graft.State) {
+		dbgLog.Debug().Msg("node is becoming a leader")
+	}
+	raftActor.OnBecomingFollower = func(state graft.State) {
+		dbgLog.Debug().Msg("node is becoming a follower")
+	}
 
-	// raftActor.OnBootLoadConfig()
+	raftActor.OnBootLoadConfig()
 
 	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor
