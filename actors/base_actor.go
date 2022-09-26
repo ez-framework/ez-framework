@@ -308,6 +308,7 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 			for {
 				select {
 				case <-ctx.Done():
+					actor.DoneSubscribing()
 					actor.wg.Done()
 					actor.debugLogger.Msg("received cancellation signal. Exiting for loop")
 					return
@@ -321,9 +322,14 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 	actor.wg.Wait()
 }
 
+// DoneSubscribing runs clean up command when it's done
+func (actor *Actor) DoneSubscribing() {
+	actor.debugLogger.Msg("DoneSubscribing() is not implemented")
+}
+
 // OnBootLoadConfig
 func (actor *Actor) OnBootLoadConfig() error {
-	actor.infoLogger.Msg("OnBootLoadConfig() is not implemented")
+	actor.debugLogger.Msg("OnBootLoadConfig() is not implemented")
 	return nil
 }
 

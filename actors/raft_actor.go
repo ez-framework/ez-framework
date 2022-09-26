@@ -95,6 +95,11 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 
 // deleteHandler listens to DELETE command and stop participating in Raft quorum
 func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
+	actor.DoneSubscribing()
+}
+
+// DoneSubscribing
+func (actor *RaftActor) DoneSubscribing() {
 	// Stop listening to JetStream config changes.
 	err := actor.Unsubscribe()
 	if err != nil {

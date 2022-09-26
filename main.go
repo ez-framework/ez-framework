@@ -92,6 +92,89 @@ func main() {
 	})
 
 	// ---------------------------------------------------------------------------
+	// Example on how to create ConfigWSActor to push config to WS clients
+	configWSActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge:    1 * time.Minute,
+			Retention: nats.WorkQueuePolicy,
+		},
+	}
+	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
+	if err != nil {
+		errLog.Fatal().Err(err).Msg("failed to create ConfigWSActor")
+	}
+	wg.Go(func() error {
+		configWSActor.RunSubscribersBlocking(ctx)
+		return nil
+	})
+
+	// ---------------------------------------------------------------------------
+	// Example on how to create a generic worker as an actor
+	workerActorConfig := actors.ActorConfig{
+		NatsAddr:         *natsAddr,
+		HTTPAddr:         *httpAddr,
+		NatsConn:         nc,
+		JetStreamContext: jetstreamContext,
+		ConfigKV:         confkv,
+		StreamConfig: &nats.StreamConfig{
+			MaxAge:    1 * time.Minute,
+			Retention: nats.WorkQueuePolicy,
+		},
+	}
+	workerActor, err := actors.NewWorkerActor(workerActorConfig, "hello")
+	if err != nil {
+		errLog.Fatal().Err(err).Msg("failed to create workerActor")
+	}
+	workerActor.SetPOSTSubscriber(func(msg *nats.Msg) {
+		outLog.Info().Str("subject", msg.Subject).Bytes("content", msg.Data).Msg("hello world!")
+	})
+	wg.Go(func() error {
+		workerActor.RunSubscribersBlocking(ctx)
+		return nil
+	})
+
+	// // ---------------------------------------------------------------------------
+	// // Example on how to create a raft node as an actor
+	// raftActorConfig := actors.ActorConfig{
+	// 	Workers:          10,
+	// 	NatsAddr:         *natsAddr,
+	// 	HTTPAddr:         *httpAddr,
+	// 	NatsConn:         nc,
+	// 	JetStreamContext: jetstreamContext,
+	// 	ConfigKV:         confkv,
+	// 	StreamConfig: &nats.StreamConfig{
+	// 		MaxAge: 1 * time.Minute,
+	// 	},
+	// 	LogsStreamConfig: &nats.StreamConfig{
+	// 		MaxAge: logStreamMaxAge,
+	// 	},
+	// }
+	// raftActor, err := actors.NewRaftActor(raftActorConfig)
+	// if err != nil {
+	// 	errLog.Fatal().Err(err).Msg("failed to create raftActor")
+	// }
+	// wg.Go(func() error {
+	// 	raftActor.RunSubscribersBlocking(ctx)
+	// 	return nil
+	// })
+
+	// // ---------------------------------------------------------------------------
+	// // Example on how to run cron scheduler only when this service is the leader
+	// raftActor.OnBecomingLeader = func(state graft.State) {
+	// 	dbgLog.Debug().Msg("node is becoming a leader")
+	// }
+	// raftActor.OnBecomingFollower = func(state graft.State) {
+	// 	dbgLog.Debug().Msg("node is becoming a follower")
+	// }
+
+	// raftActor.OnBootLoadConfig()
+
+	// ---------------------------------------------------------------------------
 	// Example on how to mount the HTTP handlers of each actor
 
 	r := chi.NewRouter()
@@ -111,6 +194,13 @@ func main() {
 	r.Method("DELETE", "/api/admin/configkv", configActor)
 
 	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
+
+	// Websocket handler to push config to clients.
+	// Useful for IoT/edge services
+	r.Handle("/api/admin/configkv/ws", configWSActor)
+
+	// GET method for raft metadata is handled by the underlying Raft struct
+	// r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
 
 	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	httpServer := &http.Server{Addr: *httpAddr, Handler: r}
