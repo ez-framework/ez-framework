@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,7 +149,7 @@ func (r *Raft) handleState(state graft.State) {
 }
 
 // Run initiates the quorum participation of this Raft node
-func (r *Raft) RunBlocking() {
+func (r *Raft) RunBlocking(ctx context.Context) {
 	r.handleState(r.Node.State())
 
 	wg := sync.WaitGroup{}
@@ -160,6 +161,10 @@ func (r *Raft) RunBlocking() {
 
 		for {
 			select {
+			case <-ctx.Done():
+				r.debugLogger.Msg("received signal from <-r.ExitChan")
+				return
+
 			case <-r.ExitChan:
 				r.debugLogger.Msg("received signal from <-r.ExitChan")
 				return

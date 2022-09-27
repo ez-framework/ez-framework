@@ -92,7 +92,7 @@ func (actor *RaftActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	go actor.Raft.RunBlocking()
+	go actor.Raft.RunBlocking(ctx)
 }
 
 // deleteHandler listens to DELETE command and stop participating in Raft quorum
