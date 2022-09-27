@@ -36,9 +36,9 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetSubscribers("POST", actor.updateHandler)
+	actor.SetSubscribers("PUT", actor.updateHandler)
+	actor.SetSubscribers("DELETE", actor.deleteHandler)
 
 	return actor, nil
 }
@@ -51,7 +51,7 @@ type CronActor struct {
 }
 
 // updateHandler receives a config from jetstream and update the cron configuration
-func (actor *CronActor) updateHandler(msg *nats.Msg) {
+func (actor *CronActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}
@@ -77,7 +77,7 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 }
 
 // deleteHandler listens to DELETE command and removes this particular cron scheduler
-func (actor *CronActor) deleteHandler(msg *nats.Msg) {
+func (actor *CronActor) deleteHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}

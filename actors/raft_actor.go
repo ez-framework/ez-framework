@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/nats-io/graft"
@@ -32,9 +33,9 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetSubscribers("POST", actor.updateHandler)
+	actor.SetSubscribers("PUT", actor.updateHandler)
+	actor.SetSubscribers("DELETE", actor.deleteHandler)
 	actor.SetOnDoneSubscribing(actor.doneSubscribingHandler)
 
 	return actor, nil
@@ -59,7 +60,7 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 }
 
 // updateHandler receives a new raft config, and starts participating in Raft quorum
-func (actor *RaftActor) updateHandler(msg *nats.Msg) {
+func (actor *RaftActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := raft.ConfigRaft{}
@@ -91,31 +92,22 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	go actor.Raft.RunSubscribersBlocking()
+	go actor.Raft.RunBlocking()
 }
 
 // deleteHandler listens to DELETE command and stop participating in Raft quorum
-func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
+func (actor *RaftActor) deleteHandler(ctx context.Context, msg *nats.Msg) {
 	actor.doneSubscribingHandler()
 }
 
 // doneSubscribingHandler
-func (actor *RaftActor) doneSubscribingHandler() {
-	println("am i called? doneSubscribingHandler()")
-	// Stop listening to JetStream config changes.
-	err := actor.Unsubscribe()
-	if err != nil {
-		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
-			Msg("failed to unsubscribe from subjects")
-	}
-
+func (actor *RaftActor) doneSubscribingHandler() error {
 	// Close the raft
 	if actor.Raft != nil {
-		println("am i called? doneSubscribingHandler() Raft.Close()")
 		actor.Raft.Close()
 	}
+
+	return nil
 }
 
 // OnBootLoadConfig loads config from KV store and publish them so that we can build a consensus.

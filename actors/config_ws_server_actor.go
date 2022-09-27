@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -35,9 +36,9 @@ func NewConfigWSServerActor(actorConfig ActorConfig) (*ConfigWSServerActor, erro
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.updateHandler)
+	actor.SetSubscribers("POST", actor.updateHandler)
+	actor.SetSubscribers("PUT", actor.updateHandler)
+	actor.SetSubscribers("DELETE", actor.updateHandler)
 
 	return actor, nil
 }
@@ -48,7 +49,7 @@ type ConfigWSServerActor struct {
 	configReceiverChan chan []byte
 }
 
-func (actor *ConfigWSServerActor) updateHandler(msg *nats.Msg) {
+func (actor *ConfigWSServerActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	// TODO: We can strip out certain config keys in the future
 	// IoT daemons don't need to know all of the configs.
 

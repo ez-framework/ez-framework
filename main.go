@@ -24,14 +24,11 @@ import (
 var outLog zerolog.Logger
 var errLog zerolog.Logger
 var dbgLog zerolog.Logger
-var logStreamMaxAge time.Duration
 
 func init() {
 	outLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 	errLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 	dbgLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-
-	logStreamMaxAge = 10 * time.Minute
 }
 
 func main() {
@@ -131,7 +128,7 @@ func main() {
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to create workerActor")
 	}
-	workerActor.SetPOSTSubscriber(func(msg *nats.Msg) {
+	workerActor.SetSubscribers("POST", func(ctx context.Context, msg *nats.Msg) {
 		outLog.Info().Str("subject", msg.Subject).Bytes("content", msg.Data).Msg("hello world!")
 	})
 	wg.Go(func() error {
@@ -142,7 +139,6 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 	raftActorConfig := actors.ActorConfig{
-		Workers:          1,
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
 		NatsConn:         nc,
@@ -151,18 +147,11 @@ func main() {
 		StreamConfig: &nats.StreamConfig{
 			MaxAge: 1 * time.Minute,
 		},
-		LogsStreamConfig: &nats.StreamConfig{
-			MaxAge: logStreamMaxAge,
-		},
 	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to create raftActor")
 	}
-	wg.Go(func() error {
-		raftActor.RunSubscribersBlocking(ctx)
-		return nil
-	})
 
 	// ---------------------------------------------------------------------------
 	// Example on how to run cron scheduler only when this service is the leader
@@ -172,6 +161,11 @@ func main() {
 	raftActor.OnBecomingFollower = func(state graft.State) {
 		dbgLog.Debug().Msg("node is becoming a follower")
 	}
+
+	wg.Go(func() error {
+		raftActor.RunSubscribersBlocking(ctx)
+		return nil
+	})
 
 	raftActor.OnBootLoadConfig()
 

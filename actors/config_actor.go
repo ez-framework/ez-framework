@@ -2,6 +2,7 @@ package actors
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 
 	"github.com/nats-io/nats.go"
@@ -28,9 +29,9 @@ func NewConfigActor(actorConfig ActorConfig) (*ConfigActor, error) {
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetSubscribers("POST", actor.updateHandler)
+	actor.SetSubscribers("PUT", actor.updateHandler)
+	actor.SetSubscribers("DELETE", actor.deleteHandler)
 
 	return actor, nil
 }
@@ -87,7 +88,7 @@ func (actor *ConfigActor) publishToDownstreams(configJSON map[string]interface{}
 
 // updateHandler will be executed inside Run.
 // It responds to POST and PUT commands.
-func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
+func (actor *ConfigActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	configJSONBytes := msg.Data
 	configJSON := make(map[string]interface{})
 
@@ -136,7 +137,7 @@ func (actor *ConfigActor) updateHandler(msg *nats.Msg) {
 }
 
 // deleteHandler listens to DELETE command and do something
-func (actor *ConfigActor) deleteHandler(msg *nats.Msg) {
+func (actor *ConfigActor) deleteHandler(ctx context.Context, msg *nats.Msg) {
 	configJSONBytes := msg.Data
 	configJSON := make(map[string]interface{})
 

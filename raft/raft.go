@@ -39,8 +39,8 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		expectedClusterSize: conf.Size,
 	}
 
-	r.ErrChan = make(chan error)
-	r.StateChangeChan = make(chan graft.StateChange)
+	r.ErrChan = make(chan error, 64000)
+	r.StateChangeChan = make(chan graft.StateChange, 64000)
 
 	natsOptions := &nats.DefaultOptions
 	natsOptions.Url = conf.NatsAddr
@@ -148,7 +148,7 @@ func (r *Raft) handleState(state graft.State) {
 }
 
 // Run initiates the quorum participation of this Raft node
-func (r *Raft) RunSubscribersBlocking() {
+func (r *Raft) RunBlocking() {
 	r.handleState(r.Node.State())
 
 	wg := sync.WaitGroup{}
@@ -156,11 +156,12 @@ func (r *Raft) RunSubscribersBlocking() {
 	wg.Add(1)
 
 	go func() {
+		defer wg.Done()
+
 		for {
 			select {
 			case <-r.ExitChan:
 				r.debugLogger.Msg("received signal from <-r.ExitChan")
-				wg.Done()
 				return
 
 			case change := <-r.StateChangeChan:

@@ -2,6 +2,7 @@ package actors
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -59,7 +60,7 @@ func TestLaunchAndSave(t *testing.T) {
 		Data:    payload,
 	}
 
-	configActor.RunSubscriberOnce(msg)
+	configActor.runSubscriberOnce(context.Background(), msg)
 
 	// Check if we saved the config.
 	inBytes, err := confkv.GetConfigBytes("ez-raft")
