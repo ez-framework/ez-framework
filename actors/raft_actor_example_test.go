@@ -32,13 +32,15 @@ func ExampleNewRaftActor() {
 	confkv, _ := configkv.NewConfigKV(jetstreamContext)
 
 	raftActorConfig := actors.ActorConfig{
-		NatsAddr:         nats.DefaultURL,
-		HTTPAddr:         httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge: 1 * time.Minute,
+		HTTPAddr: httpAddr,
+		ConfigKV: confkv,
+		Nats: actors.ActorNatsConfig{
+			Addr:             nats.DefaultURL,
+			Conn:             nc,
+			JetStreamContext: jetstreamContext,
+			StreamConfig: &nats.StreamConfig{
+				MaxAge: 1 * time.Minute,
+			},
 		},
 	}
 

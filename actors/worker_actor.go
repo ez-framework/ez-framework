@@ -10,16 +10,16 @@ func NewWorkerActor(actorConfig ActorConfig, name string) (*WorkerActor, error) 
 
 	actor := &WorkerActor{
 		Actor: Actor{
-			actorConfig: actorConfig,
-			streamName:  name,
-			ConfigKV:    actorConfig.ConfigKV,
+			config:     actorConfig,
+			streamName: name,
+			ConfigKV:   actorConfig.ConfigKV,
 		},
 	}
 
 	// WorkerActor must use nats.WorkQueuePolicy.
 	// We want the queueing behavior where a message is popped 1 by 1 by 1 random worker.
-	if actor.actorConfig.StreamConfig.Retention != nats.WorkQueuePolicy {
-		actor.actorConfig.StreamConfig.Retention = nats.WorkQueuePolicy
+	if actor.config.Nats.StreamConfig.Retention != nats.WorkQueuePolicy {
+		actor.config.Nats.StreamConfig.Retention = nats.WorkQueuePolicy
 	}
 
 	err := actor.setupConstructor()

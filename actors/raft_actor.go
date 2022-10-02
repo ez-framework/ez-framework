@@ -17,16 +17,16 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 
 	actor := &RaftActor{
 		Actor: Actor{
-			actorConfig: actorConfig,
-			streamName:  name,
-			ConfigKV:    actorConfig.ConfigKV,
+			config:     actorConfig,
+			streamName: name,
+			ConfigKV:   actorConfig.ConfigKV,
 		},
 	}
 
 	// RaftActor cannot use nats.WorkQueuePolicy.
 	// Config must be published to all subscribers because we don't know which instance is the leader.
-	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
-		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
+	if actor.config.Nats.StreamConfig.Retention == nats.WorkQueuePolicy {
+		actor.config.Nats.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
 	err := actor.setupConstructor()
@@ -72,10 +72,10 @@ func (actor *RaftActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) 
 
 	// Fill in config from actor's global config
 	if conf.NatsAddr == "" {
-		conf.NatsAddr = actor.actorConfig.NatsAddr
+		conf.NatsAddr = actor.config.Nats.Addr
 	}
 	if conf.HTTPAddr == "" {
-		conf.HTTPAddr = actor.actorConfig.HTTPAddr
+		conf.HTTPAddr = actor.config.HTTPAddr
 	}
 
 	// If there is an existing Raft node, close it.

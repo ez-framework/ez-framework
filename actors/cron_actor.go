@@ -20,19 +20,19 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 
 	actor := &CronActor{
 		Actor: Actor{
-			actorConfig: actorConfig,
-			streamName:  name,
-			ConfigKV:    actorConfig.ConfigKV,
+			config:     actorConfig,
+			streamName: name,
+			ConfigKV:   actorConfig.ConfigKV,
 		},
-		CronCollection: cron.NewCronCollection(actorConfig.JetStreamContext),
+		CronCollection: cron.NewCronCollection(actorConfig.Nats.JetStreamContext),
 		IsLeader:       make(chan bool),
 		IsFollower:     make(chan bool),
 	}
 
 	// CronActor cannot use nats.WorkQueuePolicy.
 	// Config must be published to all subscribers because we don't know which instance is the leader.
-	if actor.actorConfig.StreamConfig.Retention == nats.WorkQueuePolicy {
-		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
+	if actor.config.Nats.StreamConfig.Retention == nats.WorkQueuePolicy {
+		actor.config.Nats.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
 	err := actor.setupConstructor()

@@ -45,7 +45,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	jetstreamContext, err := nc.JetStream()
+	jsc, err := nc.JetStream()
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to get jetstream context")
 	}
@@ -53,7 +53,7 @@ func main() {
 	// ---------------------------------------------------------------------------
 	// How to create KV store for configuration
 
-	confkv, err := configkv.NewConfigKV(jetstreamContext)
+	confkv, err := configkv.NewConfigKV(jsc)
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to setup KV store")
 	}
@@ -70,13 +70,15 @@ func main() {
 	// How to create a raft node as an actor
 
 	raftActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge: 1 * time.Minute,
+		HTTPAddr: *httpAddr,
+		ConfigKV: confkv,
+		Nats: actors.ActorNatsConfig{
+			Addr:             *natsAddr,
+			Conn:             nc,
+			JetStreamContext: jsc,
+			StreamConfig: &nats.StreamConfig{
+				MaxAge: 1 * time.Minute,
+			},
 		},
 	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
@@ -88,13 +90,15 @@ func main() {
 	// How to create cron scheduler as an actor
 
 	cronActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge: 1 * time.Minute,
+		HTTPAddr: *httpAddr,
+		ConfigKV: confkv,
+		Nats: actors.ActorNatsConfig{
+			Addr:             *natsAddr,
+			Conn:             nc,
+			JetStreamContext: jsc,
+			StreamConfig: &nats.StreamConfig{
+				MaxAge: 1 * time.Minute,
+			},
 		},
 	}
 	cronActor, err := actors.NewCronActor(cronActorConfig)
@@ -135,14 +139,16 @@ func main() {
 	// CronActor needs a target worker to execute the actual work
 	// We will create a generic worker actor called hello
 	workerActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
+		HTTPAddr: *httpAddr,
+		ConfigKV: confkv,
+		Nats: actors.ActorNatsConfig{
+			Addr:             *natsAddr,
+			Conn:             nc,
+			JetStreamContext: jsc,
+			StreamConfig: &nats.StreamConfig{
+				MaxAge:    1 * time.Minute,
+				Retention: nats.WorkQueuePolicy,
+			},
 		},
 	}
 	workerActor, err := actors.NewWorkerActor(workerActorConfig, "hello")

@@ -29,16 +29,17 @@ func TestSaveAndDeleteConfig(t *testing.T) {
 	// ---------------------------------------------------------------------------
 
 	raftActorConfig := ActorConfig{
-		NatsAddr:         nats.DefaultURL,
-		HTTPAddr:         ":3000",
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge: 1 * time.Minute,
+		HTTPAddr: ":3000",
+		ConfigKV: confkv,
+		Nats: ActorNatsConfig{
+			Addr:             nats.DefaultURL,
+			Conn:             nc,
+			JetStreamContext: jetstreamContext,
+			StreamConfig: &nats.StreamConfig{
+				MaxAge: 1 * time.Minute,
+			},
 		},
 	}
-
 	raftActor, err := NewRaftActor(raftActorConfig)
 	if err != nil {
 		t.Fatal("failed to create ConfigActor")

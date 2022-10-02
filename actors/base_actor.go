@@ -17,6 +17,23 @@ import (
 	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
+type ActorNatsConfig struct {
+	// Addr is the address to connect to
+	Addr string
+
+	// Conn is the connection to a NATS cluster
+	Conn *nats.Conn
+
+	// JetStreamContext
+	JetStreamContext nats.JetStreamContext
+
+	// StreamConfig
+	StreamConfig *nats.StreamConfig
+
+	// StreamChanBuffer, min is 64000
+	StreamChanBuffer int
+}
+
 // ActorConfig is the config that all actors need
 type ActorConfig struct {
 	// Workers is the number of workers for this actor
@@ -25,17 +42,8 @@ type ActorConfig struct {
 	// HTTPAddr is the address to bind the HTTP server
 	HTTPAddr string
 
-	// NatsAddr is the address to connect to
-	NatsAddr string
-
-	// NatsConn is the connection to a NATS cluster
-	NatsConn *nats.Conn
-
-	JetStreamContext nats.JetStreamContext
-
-	StreamConfig *nats.StreamConfig
-
-	StreamChanBuffer int
+	// Configuration for Nats
+	Nats ActorNatsConfig
 
 	// ConfigKV is the KV store available for all actors.
 	ConfigKV *configkv.ConfigKV
@@ -65,7 +73,7 @@ type Actor struct {
 	ConfigKV *configkv.ConfigKV
 
 	streamName        string
-	actorConfig       ActorConfig
+	config            ActorConfig
 	wg                sync.WaitGroup
 	subscribers       map[string]func(context.Context, *nats.Msg)
 	downstreams       []string
@@ -79,17 +87,17 @@ type Actor struct {
 
 // setupConstructor sets everything that needs to be setup inside the constructor
 func (actor *Actor) setupConstructor() error {
-	if actor.actorConfig.Workers == 0 {
-		actor.actorConfig.Workers = 1
+	if actor.config.Workers == 0 {
+		actor.config.Workers = 1
 	}
-	if actor.actorConfig.StreamChanBuffer < 64000 {
-		actor.actorConfig.StreamChanBuffer = 64000
+	if actor.config.Nats.StreamChanBuffer < 64000 {
+		actor.config.Nats.StreamChanBuffer = 64000
 	}
 
 	actor.wg = sync.WaitGroup{}
 	actor.subscribers = make(map[string]func(context.Context, *nats.Msg))
-	actor.subscriptionChan = make(chan *nats.Msg, actor.actorConfig.StreamChanBuffer)
-	actor.subscriptions = make([]*nats.Subscription, actor.actorConfig.Workers)
+	actor.subscriptionChan = make(chan *nats.Msg, actor.config.Nats.StreamChanBuffer)
+	actor.subscriptions = make([]*nats.Subscription, actor.config.Workers)
 	actor.downstreams = make([]string, 0)
 
 	actor.setupLoggers()
@@ -134,17 +142,17 @@ func (actor *Actor) log(lvl zerolog.Level) *zerolog.Event {
 
 // setupStream creates a dedicated stream for this actor
 func (actor *Actor) setupStream() error {
-	if actor.actorConfig.StreamConfig == nil {
-		actor.actorConfig.StreamConfig = &nats.StreamConfig{}
+	if actor.config.Nats.StreamConfig == nil {
+		actor.config.Nats.StreamConfig = &nats.StreamConfig{}
 	}
 
-	actor.actorConfig.StreamConfig.Name = actor.streamName
-	actor.actorConfig.StreamConfig.Subjects = append(actor.actorConfig.StreamConfig.Subjects, actor.subscribeSubjects())
+	actor.config.Nats.StreamConfig.Name = actor.streamName
+	actor.config.Nats.StreamConfig.Subjects = append(actor.config.Nats.StreamConfig.Subjects, actor.subscribeSubjects())
 
-	_, err := actor.jc().AddStream(actor.actorConfig.StreamConfig)
+	_, err := actor.jc().AddStream(actor.config.Nats.StreamConfig)
 	if err != nil {
 		if err.Error() == "nats: stream name already in use" {
-			_, err = actor.jc().UpdateStream(actor.actorConfig.StreamConfig)
+			_, err = actor.jc().UpdateStream(actor.config.Nats.StreamConfig)
 		}
 
 		if err != nil {
@@ -173,7 +181,7 @@ func (actor *Actor) subscribeSubjects() string {
 
 // jc gets the JetStreamContext
 func (actor *Actor) jc() nats.JetStreamContext {
-	return actor.actorConfig.JetStreamContext
+	return actor.config.Nats.JetStreamContext
 }
 
 // kv gets the underlying KV store
@@ -280,10 +288,10 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 	var err error
 	var sub *nats.Subscription
 
-	for i := 0; i < actor.actorConfig.Workers; i++ {
+	for i := 0; i < actor.config.Workers; i++ {
 		actor.wg.Add(1)
 
-		switch actor.actorConfig.StreamConfig.Retention {
+		switch actor.config.Nats.StreamConfig.Retention {
 		case nats.WorkQueuePolicy:
 			sub, err = actor.jc().ChanQueueSubscribe(actor.subscribeSubjects(), "workers", actor.subscriptionChan)
 		default:
