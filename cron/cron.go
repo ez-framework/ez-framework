@@ -19,13 +19,26 @@ type CronConfig struct {
 	WorkerQueue string
 }
 
+// CronStatus is used to display the current status of cronjob
+type CronStatus struct {
+	ID          string
+	Schedule    string
+	Timezone    string
+	WorkerQueue string
+	IsRunning   bool
+	LastRun     time.Time
+	NextRun     time.Time
+	RunCount    int
+}
+
 // NewCronCollection is the constructor for CronCollection
 func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
 	cc := &CronCollection{
-		jc:             jc,
-		c:              make(map[string]*gocron.Scheduler),
-		confCollection: make(map[string]CronConfig),
-		mtx:            sync.RWMutex{},
+		jc:               jc,
+		schedulers:       make(map[string]*gocron.Scheduler),
+		schedulerConfigs: make(map[string]CronConfig),
+		jobs:             make(map[string]*gocron.Job),
+		mtx:              sync.RWMutex{},
 	}
 
 	outWriter := diode.NewWriter(os.Stdout, 1000, 0, nil)
@@ -40,15 +53,16 @@ func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
 
 // CronCollection holds a collection of cron schedulers.
 type CronCollection struct {
-	isLeader       bool
-	isFollower     bool
-	c              map[string]*gocron.Scheduler
-	confCollection map[string]CronConfig
-	jc             nats.JetStreamContext
-	mtx            sync.RWMutex
-	infoLogger     zerolog.Logger
-	errorLogger    zerolog.Logger
-	debugLogger    zerolog.Logger
+	isLeader         bool
+	isFollower       bool
+	schedulers       map[string]*gocron.Scheduler
+	schedulerConfigs map[string]CronConfig
+	jobs             map[string]*gocron.Job
+	jc               nats.JetStreamContext
+	mtx              sync.RWMutex
+	infoLogger       zerolog.Logger
+	errorLogger      zerolog.Logger
+	debugLogger      zerolog.Logger
 }
 
 func (collection *CronCollection) workerQueueStreamName(config CronConfig) string {
@@ -80,11 +94,18 @@ func (collection *CronCollection) Update(config CronConfig) {
 	scheduler = scheduler.Cron(config.Schedule)
 
 	collection.mtx.Lock()
-	collection.c[config.ID] = scheduler
-	collection.confCollection[config.ID] = config
+	collection.schedulers[config.ID] = scheduler
+	collection.schedulerConfigs[config.ID] = config
 	collection.mtx.Unlock()
 
-	scheduler.Do(func() {
+	job, err := scheduler.Do(func() {
+		collection.log(zerolog.DebugLevel).
+			Str("cron.id", config.ID).
+			Str("cron.schedule", config.Schedule).
+			Str("cron.timezone", config.Timezone).
+			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
+			Msg("about to publish to JetStream to trigger work on worker queue")
+
 		_, err := collection.jc.Publish(collection.workerQueueStreamName(config)+".command:UPDATE", []byte(`{}`))
 		if err != nil {
 			collection.log(zerolog.ErrorLevel).Caller().Err(err).
@@ -95,6 +116,18 @@ func (collection *CronCollection) Update(config CronConfig) {
 				Msg("failed to publish to JetStream to trigger work on worker queue")
 		}
 	})
+	if err != nil {
+		collection.log(zerolog.ErrorLevel).Caller().Err(err).
+			Str("cron.id", config.ID).
+			Str("cron.schedule", config.Schedule).
+			Str("cron.timezone", config.Timezone).
+			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
+			Msg("failed to schedule a cron function")
+	}
+
+	collection.mtx.Lock()
+	collection.jobs[config.ID] = job
+	collection.mtx.Unlock()
 }
 
 // BecomesLeader keep track of leader/follower state
@@ -122,11 +155,12 @@ func (collection *CronCollection) Delete(config CronConfig) {
 	collection.mtx.Lock()
 	defer collection.mtx.Unlock()
 
-	existing, ok := collection.c[config.ID]
+	existing, ok := collection.schedulers[config.ID]
 	if ok {
 		existing.Stop()
-		delete(collection.c, config.ID)
-		delete(collection.confCollection, config.ID)
+		delete(collection.schedulers, config.ID)
+		delete(collection.schedulerConfigs, config.ID)
+		delete(collection.jobs, config.ID)
 	}
 }
 
@@ -134,7 +168,7 @@ func (collection *CronCollection) Delete(config CronConfig) {
 func (collection *CronCollection) StopAll() {
 	collection.log(zerolog.DebugLevel).Msg("CronCollection.StopAll() is triggered. Stopping all cronjobs...")
 
-	for _, existing := range collection.c {
+	for _, existing := range collection.schedulers {
 		existing.Stop()
 	}
 }
@@ -143,12 +177,36 @@ func (collection *CronCollection) StopAll() {
 func (collection *CronCollection) StartAll() {
 	collection.log(zerolog.DebugLevel).Msg("CronCollection.StartAll() is triggered. Running all cronjobs...")
 
-	for _, existing := range collection.c {
+	for _, existing := range collection.schedulers {
 		existing.StartAsync()
 	}
+	collection.log(zerolog.DebugLevel).Msg("CronCollection.StartAll() is triggered. Started all cronjobs asynchronously")
 }
 
-// AllConfigs shows all cron configurations.
-func (collection *CronCollection) AllConfigs() map[string]CronConfig {
-	return collection.confCollection
+// AllStatuses shows all cron configurations.
+// This is not correct. The information should somehow be in the database.
+func (collection *CronCollection) AllStatuses() map[string]CronStatus {
+	collection.mtx.RLock()
+	defer collection.mtx.RUnlock()
+
+	statuses := make(map[string]CronStatus)
+
+	for id, conf := range collection.schedulerConfigs {
+		status := CronStatus{
+			ID:          conf.ID,
+			Schedule:    conf.Schedule,
+			Timezone:    conf.Timezone,
+			WorkerQueue: conf.WorkerQueue,
+		}
+
+		job := collection.jobs[id]
+		status.IsRunning = job.IsRunning()
+		status.LastRun = job.LastRun()
+		status.NextRun = job.NextRun()
+		status.RunCount = job.RunCount()
+
+		statuses[id] = status
+	}
+
+	return statuses
 }

@@ -21,7 +21,7 @@ func (handler *CronCollectionHTTPGet) ServeHTTP(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	allConfigs := handler.collection.AllConfigs()
+	allConfigs := handler.collection.AllStatuses()
 
 	json.NewEncoder(w).Encode(allConfigs)
 }
