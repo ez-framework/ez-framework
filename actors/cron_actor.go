@@ -3,11 +3,14 @@ package actors
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/nats-io/nats.go"
 
 	"github.com/ez-framework/ez-framework/cron"
+	"github.com/ez-framework/ez-framework/http_helpers"
 )
 
 // NewCronActor is the constructor for CronActors
@@ -61,13 +64,6 @@ func (actor *CronActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) 
 		return
 	}
 
-	// Save the config in KV store first before updating CronCollection.
-	_, err = actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to save config")
-		return
-	}
-
 	// Update CronCollection's config in memory
 	actor.CronCollection.Update(conf)
 
@@ -84,12 +80,6 @@ func (actor *CronActor) configDeleteHandler(ctx context.Context, msg *nats.Msg) 
 	err := json.Unmarshal(configBytes, &conf)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-		return
-	}
-
-	err = actor.kv().Delete(actor.streamName + "." + conf.ID)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to delete config")
 		return
 	}
 
@@ -139,7 +129,7 @@ func (actor *CronActor) OnBootLoadConfig() error {
 				return err
 			}
 
-			err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+			err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "UPDATE"), configBytes)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to publish")
 			}
@@ -147,4 +137,60 @@ func (actor *CronActor) OnBootLoadConfig() error {
 	}
 
 	return nil
+}
+
+// ServeHTTP supports updating and deleting object configuration via HTTP.
+// Supported commands are POST, PUT, DELETE, and UNSUB
+// HTTP GET should only be supported by the underlying object.
+// Override this method if you want to do something custom.
+func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	configJSONBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	// Unpack to get the ID
+	conf := cron.CronConfig{}
+
+	err = json.Unmarshal(configJSONBytes, &conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	command := actor.normalizeCommandFromHTTP(r)
+
+	// Update KV store
+	switch command {
+	case "UPDATE":
+		revision, err := actor.configPut(actor.streamName+"."+conf.ID, configJSONBytes)
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+
+		} else {
+			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
+		}
+
+	case "DELETE":
+		err = actor.configDelete(actor.streamName + "." + conf.ID)
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to delete config")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Push config to listeners
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write([]byte(`{"status":"success"}`))
 }

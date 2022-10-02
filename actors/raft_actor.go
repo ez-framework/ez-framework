@@ -109,7 +109,7 @@ func (actor *RaftActor) OnBootLoadConfig() error {
 		return err
 	}
 
-	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "UPDATE"), configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to publish")
 	}

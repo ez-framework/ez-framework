@@ -334,17 +334,7 @@ func (actor *Actor) configDelete(key string) error {
 	return actor.kv().Delete(key)
 }
 
-// ServeHTTP supports updating and deleting object configuration via HTTP.
-// Supported commands are POST, PUT, DELETE, and UNSUB
-// HTTP GET should only be supported by the underlying object.
-// Override this method if you want to do something custom.
-func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	configJSONBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
-		return
-	}
-
+func (actor *Actor) normalizeCommandFromHTTP(r *http.Request) string {
 	command := ""
 
 	// Normalize command
@@ -359,6 +349,22 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "DELETE":
 		command = r.Method
 	}
+
+	return command
+}
+
+// ServeHTTP supports updating and deleting object configuration via HTTP.
+// Supported commands are POST, PUT, DELETE, and UNSUB
+// HTTP GET should only be supported by the underlying object.
+// Override this method if you want to do something custom.
+func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	configJSONBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	command := actor.normalizeCommandFromHTTP(r)
 
 	// Update KV store
 	switch command {
