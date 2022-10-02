@@ -19,6 +19,7 @@ import (
 
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
+	"github.com/ez-framework/ez-framework/raft"
 )
 
 var outLog zerolog.Logger
@@ -68,75 +69,6 @@ func main() {
 	wg, ctx := errgroup.WithContext(ctx)
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigActor
-	configActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
-		},
-	}
-	configActor, err := actors.NewConfigActor(configActorConfig)
-	if err != nil {
-		errLog.Fatal().Err(err).Msg("failed to create ConfigActor")
-	}
-	wg.Go(func() error {
-		configActor.RunSubscribersBlocking(ctx)
-		return nil
-	})
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigWSActor to push config to WS clients
-	configWSActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
-		},
-	}
-	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
-	if err != nil {
-		errLog.Fatal().Err(err).Msg("failed to create ConfigWSActor")
-	}
-	wg.Go(func() error {
-		configWSActor.RunSubscribersBlocking(ctx)
-		return nil
-	})
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create a generic worker as an actor
-	workerActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
-		},
-	}
-	workerActor, err := actors.NewWorkerActor(workerActorConfig, "hello")
-	if err != nil {
-		errLog.Fatal().Err(err).Msg("failed to create workerActor")
-	}
-	workerActor.SetSubscribers("POST", func(ctx context.Context, msg *nats.Msg) {
-		outLog.Info().Str("subject", msg.Subject).Bytes("content", msg.Data).Msg("hello world!")
-	})
-	wg.Go(func() error {
-		workerActor.RunSubscribersBlocking(ctx)
-		return nil
-	})
-
-	// ---------------------------------------------------------------------------
 	// Example on how to create a raft node as an actor
 	raftActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
@@ -163,7 +95,7 @@ func main() {
 	}
 
 	wg.Go(func() error {
-		raftActor.RunSubscribersBlocking(ctx)
+		raftActor.RunConfigListener(ctx)
 		return nil
 	})
 
@@ -179,23 +111,17 @@ func main() {
 		w.Write([]byte("welcome"))
 	})
 
-	// As a common design, let the actor handles mutable HTTP methods
-	// and leave the GET methods to the underlying struct.
-	// Because we are limited in terms of HTTP verbs, we'll use command parameter.
 	// Examples:
-	//   POST /api/admin/configkv?command=POST
-	//   POST /api/admin/configkv?command=UNSUB
-	r.Method("POST", "/api/admin/configkv", configActor)
-	r.Method("DELETE", "/api/admin/configkv", configActor)
-
-	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
-
-	// Websocket handler to push config to clients.
-	// Useful for IoT/edge services
-	r.Handle("/api/admin/configkv/ws", configWSActor)
+	//   POST /api/admin/raft
+	//   POST /api/admin/raft?command=UNSUB
+	//   DELETE /api/admin/raft
+	r.Method("POST", "/api/admin/raft", raftActor)
+	r.Method("DELETE", "/api/admin/raft", raftActor)
 
 	// GET method for raft metadata is handled by the underlying Raft struct
-	// r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
+	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
+
+	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 
 	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	httpServer := &http.Server{Addr: *httpAddr, Handler: r}

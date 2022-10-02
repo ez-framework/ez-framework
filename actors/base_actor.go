@@ -43,13 +43,14 @@ type ActorConfig struct {
 // IActor is the interface to conform to for all actors
 type IActor interface {
 	GetStreamName() string
-	RunSubscribersBlocking(context.Context)
-	Publish(string, []byte) error
+	RunConfigListener(context.Context)
+	PublishConfig(string, []byte) error
 	ServeHTTP(http.ResponseWriter, *http.Request)
 	OnBootLoadConfig() error
 
-	SetSubscribers(string, func(context.Context, *nats.Msg))
-	SetOnDoneSubscribing(func() error)
+	SetOnConfigUpdate(func(context.Context, *nats.Msg))
+	SetOnConfigDelete(func(context.Context, *nats.Msg))
+	SetDownstreams(...string)
 
 	setupStream() error
 	jc() nats.JetStreamContext
@@ -66,6 +67,7 @@ type Actor struct {
 	actorConfig       ActorConfig
 	wg                sync.WaitGroup
 	subscribers       map[string]func(context.Context, *nats.Msg)
+	downstreams       []string
 	onDoneSubscribing func() error
 	subscriptionChan  chan *nats.Msg
 	subscriptions     []*nats.Subscription
@@ -87,6 +89,7 @@ func (actor *Actor) setupConstructor() error {
 	actor.subscribers = make(map[string]func(context.Context, *nats.Msg))
 	actor.subscriptionChan = make(chan *nats.Msg, actor.actorConfig.StreamChanBuffer)
 	actor.subscriptions = make([]*nats.Subscription, actor.actorConfig.Workers)
+	actor.downstreams = make([]string, 0)
 
 	actor.setupLoggers()
 
@@ -224,19 +227,24 @@ func (actor *Actor) GetStreamName() string {
 	return actor.streamName
 }
 
-// SetSubscribers
-func (actor *Actor) SetSubscribers(method string, handler func(ctx context.Context, msg *nats.Msg)) {
-	actor.subscribers[method] = handler
+// SetOnConfigUpdate
+func (actor *Actor) SetOnConfigUpdate(handler func(context.Context, *nats.Msg)) {
+	actor.subscribers["UPDATE"] = handler
 }
 
-// SetOnDoneSubscribing
-func (actor *Actor) SetOnDoneSubscribing(handler func() error) {
-	actor.onDoneSubscribing = handler
+// SetOnConfigDelete
+func (actor *Actor) SetOnConfigDelete(handler func(context.Context, *nats.Msg)) {
+	actor.subscribers["DELETE"] = handler
 }
 
-// Publish data into JetStream with a nats key.
+// SetOnConfigDelete
+func (actor *Actor) SetDownstreams(downstreams ...string) {
+	actor.downstreams = downstreams
+}
+
+// PublishConfig data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
-func (actor *Actor) Publish(key string, data []byte) error {
+func (actor *Actor) PublishConfig(key string, data []byte) error {
 	_, err := actor.jc().Publish(key, data)
 	if err != nil {
 		actor.errorLogger.Caller().Err(err).
@@ -255,8 +263,8 @@ func (actor *Actor) runSubscriberOnce(ctx context.Context, msg *nats.Msg) {
 	}
 }
 
-// RunSubscribersBlocking listens to config changes and execute hooks
-func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
+// RunConfigListener listens to config changes and execute hooks
+func (actor *Actor) RunConfigListener(ctx context.Context) {
 	actor.infoLogger.Msg("subscribing to nats subjects")
 
 	var err error
@@ -310,15 +318,15 @@ func (actor *Actor) RunSubscribersBlocking(ctx context.Context) {
 	actor.wg.Wait()
 }
 
-// OnBootLoadConfig
+// OnBootLoadConfig loads the configuration to setup the underlying object
 func (actor *Actor) OnBootLoadConfig() error {
 	actor.debugLogger.Msg("OnBootLoadConfig() is not implemented")
 	return nil
 }
 
-// ServeHTTP supports updating, deleting, and subscribing via HTTP.
-// Actor's HTTP handler always support only POST, PUT, DELETE, and UNSUB
-// HTTP GET should only be supported by the underlying struct.
+// ServeHTTP supports updating and deleting object configuration via HTTP.
+// Supported commands are POST, PUT, DELETE, and UNSUB
+// HTTP GET should only be supported by the underlying object.
 // Override this method if you want to do something custom.
 func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	configJSONBytes, err := io.ReadAll(r.Body)
@@ -329,14 +337,43 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	command := ""
 
+	// Normalize command
 	switch r.Method {
-	case "POST":
-		command = r.FormValue("command")
+	case "POST", "PUT":
+		switch r.FormValue("command") {
+		case "UNSUB":
+			command = "UNSUB"
+		default:
+			command = "UPDATE"
+		}
 	case "DELETE":
 		command = r.Method
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
+	// Update KV store
+	switch command {
+	case "UPDATE":
+		revision, err := actor.kv().Put(actor.streamName, configJSONBytes)
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+
+		} else {
+			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
+		}
+
+	case "DELETE":
+		err := actor.kv().Delete(actor.keyWithoutCommand(actor.streamName))
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Push config to listeners
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
 		return

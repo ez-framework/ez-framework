@@ -33,10 +33,8 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		return nil, err
 	}
 
-	actor.SetSubscribers("POST", actor.updateHandler)
-	actor.SetSubscribers("PUT", actor.updateHandler)
-	actor.SetSubscribers("DELETE", actor.deleteHandler)
-	actor.SetOnDoneSubscribing(actor.doneSubscribingHandler)
+	actor.SetOnConfigUpdate(actor.configUpdateHandler)
+	actor.SetOnConfigDelete(actor.configDeleteHandler)
 
 	return actor, nil
 }
@@ -59,8 +57,8 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft.OnClosed = actor.OnClosed
 }
 
-// updateHandler receives a new raft config, and starts participating in Raft quorum
-func (actor *RaftActor) updateHandler(ctx context.Context, msg *nats.Msg) {
+// configUpdateHandler receives a new raft config, and starts participating in Raft quorum
+func (actor *RaftActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := raft.ConfigRaft{}
@@ -95,19 +93,12 @@ func (actor *RaftActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	go actor.Raft.RunBlocking(ctx)
 }
 
-// deleteHandler listens to DELETE command and stop participating in Raft quorum
-func (actor *RaftActor) deleteHandler(ctx context.Context, msg *nats.Msg) {
-	actor.doneSubscribingHandler()
-}
-
-// doneSubscribingHandler
-func (actor *RaftActor) doneSubscribingHandler() error {
+// configDeleteHandler listens to DELETE command and stop participating in Raft quorum
+func (actor *RaftActor) configDeleteHandler(ctx context.Context, msg *nats.Msg) {
 	// Close the raft
 	if actor.Raft != nil {
 		actor.Raft.Close()
 	}
-
-	return nil
 }
 
 // OnBootLoadConfig loads config from KV store and publish them so that we can build a consensus.
@@ -118,7 +109,7 @@ func (actor *RaftActor) OnBootLoadConfig() error {
 		return err
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to publish")
 	}

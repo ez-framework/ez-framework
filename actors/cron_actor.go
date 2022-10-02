@@ -36,9 +36,8 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		return nil, err
 	}
 
-	actor.SetSubscribers("POST", actor.updateHandler)
-	actor.SetSubscribers("PUT", actor.updateHandler)
-	actor.SetSubscribers("DELETE", actor.deleteHandler)
+	actor.SetOnConfigUpdate(actor.configUpdateHandler)
+	actor.SetOnConfigDelete(actor.configDeleteHandler)
 
 	return actor, nil
 }
@@ -50,8 +49,8 @@ type CronActor struct {
 	IsFollower     chan bool
 }
 
-// updateHandler receives a config from jetstream and update the cron configuration
-func (actor *CronActor) updateHandler(ctx context.Context, msg *nats.Msg) {
+// configUpdateHandler receives a config from jetstream and update the cron configuration
+func (actor *CronActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}
@@ -76,8 +75,8 @@ func (actor *CronActor) updateHandler(ctx context.Context, msg *nats.Msg) {
 	// That job is handled by OnBecomingLeaderBlocking.
 }
 
-// deleteHandler listens to DELETE command and removes this particular cron scheduler
-func (actor *CronActor) deleteHandler(ctx context.Context, msg *nats.Msg) {
+// configDeleteHandler listens to DELETE command and removes this particular cron scheduler
+func (actor *CronActor) configDeleteHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}
@@ -140,7 +139,7 @@ func (actor *CronActor) OnBootLoadConfig() error {
 				return err
 			}
 
-			err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+			err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to publish")
 			}

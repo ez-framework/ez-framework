@@ -25,7 +25,10 @@ func (handler *RaftHTTPGet) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	data["ID"] = handler.raft.Node.Id()
 	data["Leader"] = handler.raft.Node.Leader()
 	data["LogDir"] = handler.raft.LogDir
-	data["ClusterName"] = handler.raft.Name
+	data["Name"] = handler.raft.Name
+	data["ExpectedClusterSize"] = handler.raft.ExpectedClusterSize
+	data["NatsAddr"] = handler.raft.NatsAddr
+	data["HTTPAddr"] = handler.raft.HTTPAddr
 
 	json.NewEncoder(w).Encode(data)
 }

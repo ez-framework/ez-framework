@@ -35,9 +35,9 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		Name:   conf.Name,
 		LogDir: conf.LogDir,
 
-		natsAddr:            conf.NatsAddr,
-		httpAddr:            conf.HTTPAddr,
-		expectedClusterSize: conf.Size,
+		NatsAddr:            conf.NatsAddr,
+		HTTPAddr:            conf.HTTPAddr,
+		ExpectedClusterSize: conf.Size,
 	}
 
 	r.ErrChan = make(chan error, 64000)
@@ -72,20 +72,20 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 
 	r.infoLogger = outLog.Info().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	r.errorLogger = errLog.Error().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	r.debugLogger = errLog.Debug().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	return r, nil
@@ -93,9 +93,12 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 
 // Raft is a structure that represents a Raft node
 type Raft struct {
-	Name   string
-	Node   *graft.Node
-	LogDir string
+	Name                string
+	Node                *graft.Node
+	LogDir              string
+	ExpectedClusterSize int
+	NatsAddr            string
+	HTTPAddr            string
 
 	ExitChan        chan bool
 	ErrChan         chan error
@@ -106,13 +109,10 @@ type Raft struct {
 	OnBecomingCandidate func(state graft.State)
 	OnClosed            func(state graft.State)
 
-	expectedClusterSize int
-	natsAddr            string
-	httpAddr            string
-	clusterInfo         graft.ClusterInfo
-	infoLogger          *zerolog.Event
-	errorLogger         *zerolog.Event
-	debugLogger         *zerolog.Event
+	clusterInfo graft.ClusterInfo
+	infoLogger  *zerolog.Event
+	errorLogger *zerolog.Event
+	debugLogger *zerolog.Event
 }
 
 // handleState handles the changing of Raft node's state
@@ -162,7 +162,7 @@ func (r *Raft) RunBlocking(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				r.debugLogger.Msg("received signal from <-r.ExitChan")
+				r.debugLogger.Msg("received signal from <-ctx.Done")
 				return
 
 			case <-r.ExitChan:
@@ -187,10 +187,9 @@ func (r *Raft) RunBlocking(ctx context.Context) {
 func (r *Raft) Close() {
 	r.debugLogger.Caller().Msg("(r *Raft) Close() is called")
 
-	r.Node.Close()
-	close(r.StateChangeChan)
-	close(r.ErrChan)
-
 	r.ExitChan <- true
 	close(r.ExitChan)
+	close(r.StateChangeChan)
+	close(r.ErrChan)
+	r.Node.Close()
 }
