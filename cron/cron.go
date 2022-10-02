@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"encoding/json"
 	"os"
 	"sync"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/diode"
+
+	"github.com/ez-framework/ez-framework/configkv"
 )
 
 // CronConfig is the setting for cronjob
@@ -32,13 +35,14 @@ type CronStatus struct {
 }
 
 // NewCronCollection is the constructor for CronCollection
-func NewCronCollection(jc nats.JetStreamContext) *CronCollection {
+func NewCronCollection(jc nats.JetStreamContext, configKV *configkv.ConfigKV) *CronCollection {
 	cc := &CronCollection{
 		jc:               jc,
 		schedulers:       make(map[string]*gocron.Scheduler),
 		schedulerConfigs: make(map[string]CronConfig),
 		jobs:             make(map[string]*gocron.Job),
 		mtx:              sync.RWMutex{},
+		configKV:         configKV,
 	}
 
 	outWriter := diode.NewWriter(os.Stdout, 1000, 0, nil)
@@ -59,6 +63,7 @@ type CronCollection struct {
 	schedulerConfigs map[string]CronConfig
 	jobs             map[string]*gocron.Job
 	jc               nats.JetStreamContext
+	configKV         *configkv.ConfigKV
 	mtx              sync.RWMutex
 	infoLogger       zerolog.Logger
 	errorLogger      zerolog.Logger
@@ -77,6 +82,66 @@ func (collection *CronCollection) log(lvl zerolog.Level) *zerolog.Event {
 		return collection.debugLogger.Debug()
 	default:
 		return collection.infoLogger.Info()
+	}
+}
+
+// kv gets the underlying KV store
+func (collection *CronCollection) kv() nats.KeyValue {
+	return collection.configKV.KV
+}
+
+func (collection *CronCollection) saveStatus(configID string, statusBytes []byte) error {
+	_, err := collection.kv().Put("ez-cron-status."+configID, statusBytes)
+	return err
+}
+
+func (collection *CronCollection) getStatus(configID string) (CronStatus, error) {
+	status := CronStatus{}
+
+	entry, err := collection.kv().Get("ez-cron-status." + configID)
+	if err != nil {
+		return status, err
+	}
+
+	statusBytes := entry.Value()
+	err = json.Unmarshal(statusBytes, &status)
+	if err != nil {
+		return status, err
+	}
+
+	return status, nil
+}
+
+// saveCronjobInfo saves cronjob information into the database
+func (collection *CronCollection) saveCronjobInfo(config CronConfig, job *gocron.Job) {
+	status := CronStatus{
+		ID:          config.ID,
+		Schedule:    config.Schedule,
+		Timezone:    config.Timezone,
+		WorkerQueue: config.WorkerQueue,
+	}
+
+	status.IsRunning = job.IsRunning()
+	status.LastRun = job.LastRun()
+	status.NextRun = job.NextRun()
+	status.RunCount = job.RunCount()
+
+	statusBytes, err := json.Marshal(status)
+	if err != nil {
+		collection.log(zerolog.ErrorLevel).Caller().Err(err).
+			Str("cron.id", config.ID).
+			Str("cron.schedule", config.Schedule).
+			Str("cron.timezone", config.Timezone).
+			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
+			Msg("failed to marshal job status into the database")
+	} else {
+		err := collection.saveStatus(config.ID, statusBytes)
+		collection.log(zerolog.ErrorLevel).Caller().Err(err).
+			Str("cron.id", config.ID).
+			Str("cron.schedule", config.Schedule).
+			Str("cron.timezone", config.Timezone).
+			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
+			Msg("failed to save job status into the database")
 	}
 }
 
@@ -124,6 +189,12 @@ func (collection *CronCollection) Update(config CronConfig) {
 			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
 			Msg("failed to schedule a cron function")
 	}
+
+	// Configure after execution hook.
+	// We are saving the cronjob metadata into the database here.
+	job.SetEventListeners(func() {}, func() {
+		collection.saveCronjobInfo(config, job)
+	})
 
 	collection.mtx.Lock()
 	collection.jobs[config.ID] = job
@@ -185,28 +256,17 @@ func (collection *CronCollection) StartAll() {
 
 // AllStatuses shows all cron configurations.
 // This is not correct. The information should somehow be in the database.
-func (collection *CronCollection) AllStatuses() map[string]CronStatus {
-	collection.mtx.RLock()
-	defer collection.mtx.RUnlock()
-
+func (collection *CronCollection) AllStatuses() (map[string]CronStatus, error) {
 	statuses := make(map[string]CronStatus)
 
-	for id, conf := range collection.schedulerConfigs {
-		status := CronStatus{
-			ID:          conf.ID,
-			Schedule:    conf.Schedule,
-			Timezone:    conf.Timezone,
-			WorkerQueue: conf.WorkerQueue,
+	for id, _ := range collection.schedulerConfigs {
+		status, err := collection.getStatus(id)
+		if err != nil {
+			return nil, err
 		}
-
-		job := collection.jobs[id]
-		status.IsRunning = job.IsRunning()
-		status.LastRun = job.LastRun()
-		status.NextRun = job.NextRun()
-		status.RunCount = job.RunCount()
 
 		statuses[id] = status
 	}
 
-	return statuses
+	return statuses, nil
 }

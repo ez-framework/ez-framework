@@ -24,7 +24,7 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 			streamName: name,
 			ConfigKV:   actorConfig.ConfigKV,
 		},
-		CronCollection: cron.NewCronCollection(actorConfig.Nats.JetStreamContext),
+		CronCollection: cron.NewCronCollection(actorConfig.Nats.JetStreamContext, actorConfig.ConfigKV),
 		IsLeader:       make(chan bool),
 		IsFollower:     make(chan bool),
 	}

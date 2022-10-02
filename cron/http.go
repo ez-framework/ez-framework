@@ -3,6 +3,8 @@ package cron
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 )
 
 func NewCronCollectionHTTPGet(collection *CronCollection) *CronCollectionHTTPGet {
@@ -21,7 +23,13 @@ func (handler *CronCollectionHTTPGet) ServeHTTP(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	allConfigs := handler.collection.AllStatuses()
+	allStatuses, err := handler.collection.AllStatuses()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to render cronjob statuses")
 
-	json.NewEncoder(w).Encode(allConfigs)
+		w.Write([]byte(`{}`))
+		return
+	}
+
+	json.NewEncoder(w).Encode(allStatuses)
 }
