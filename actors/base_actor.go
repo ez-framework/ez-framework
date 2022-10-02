@@ -324,6 +324,16 @@ func (actor *Actor) OnBootLoadConfig() error {
 	return nil
 }
 
+// configPut saves config
+func (actor *Actor) configPut(key string, value []byte) (uint64, error) {
+	return actor.kv().Put(key, value)
+}
+
+// configDelete delete config
+func (actor *Actor) configDelete(key string) error {
+	return actor.kv().Delete(key)
+}
+
 // ServeHTTP supports updating and deleting object configuration via HTTP.
 // Supported commands are POST, PUT, DELETE, and UNSUB
 // HTTP GET should only be supported by the underlying object.
@@ -353,7 +363,7 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Update KV store
 	switch command {
 	case "UPDATE":
-		revision, err := actor.kv().Put(actor.streamName, configJSONBytes)
+		revision, err := actor.configPut(actor.streamName, configJSONBytes)
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
 			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
@@ -364,7 +374,7 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "DELETE":
-		err := actor.kv().Delete(actor.keyWithoutCommand(actor.streamName))
+		err := actor.configDelete(actor.keyWithoutCommand(actor.streamName))
 		if err != nil {
 			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
 			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
