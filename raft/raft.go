@@ -1,9 +1,11 @@
 package raft
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/graft"
@@ -33,13 +35,13 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		Name:   conf.Name,
 		LogDir: conf.LogDir,
 
-		natsAddr:            conf.NatsAddr,
-		httpAddr:            conf.HTTPAddr,
-		expectedClusterSize: conf.Size,
+		NatsAddr:            conf.NatsAddr,
+		HTTPAddr:            conf.HTTPAddr,
+		ExpectedClusterSize: conf.Size,
 	}
 
-	r.ErrChan = make(chan error)
-	r.StateChangeChan = make(chan graft.StateChange)
+	r.ErrChan = make(chan error, 64000)
+	r.StateChangeChan = make(chan graft.StateChange, 64000)
 
 	natsOptions := &nats.DefaultOptions
 	natsOptions.Url = conf.NatsAddr
@@ -70,20 +72,20 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 
 	r.infoLogger = outLog.Info().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	r.errorLogger = errLog.Error().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	r.debugLogger = errLog.Debug().
 		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.expectedClusterSize).
-		Str("raft.nats.addr", r.natsAddr).
+		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+		Str("raft.nats.addr", r.NatsAddr).
 		Str("raft.log.dir", conf.LogDir)
 
 	return r, nil
@@ -91,9 +93,12 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 
 // Raft is a structure that represents a Raft node
 type Raft struct {
-	Name   string
-	Node   *graft.Node
-	LogDir string
+	Name                string
+	Node                *graft.Node
+	LogDir              string
+	ExpectedClusterSize int
+	NatsAddr            string
+	HTTPAddr            string
 
 	ExitChan        chan bool
 	ErrChan         chan error
@@ -104,13 +109,10 @@ type Raft struct {
 	OnBecomingCandidate func(state graft.State)
 	OnClosed            func(state graft.State)
 
-	expectedClusterSize int
-	natsAddr            string
-	httpAddr            string
-	clusterInfo         graft.ClusterInfo
-	infoLogger          *zerolog.Event
-	errorLogger         *zerolog.Event
-	debugLogger         *zerolog.Event
+	clusterInfo graft.ClusterInfo
+	infoLogger  *zerolog.Event
+	errorLogger *zerolog.Event
+	debugLogger *zerolog.Event
 }
 
 // handleState handles the changing of Raft node's state
@@ -147,30 +149,47 @@ func (r *Raft) handleState(state graft.State) {
 }
 
 // Run initiates the quorum participation of this Raft node
-func (r *Raft) RunSubscriberAsync() {
+func (r *Raft) RunBlocking(ctx context.Context) {
 	r.handleState(r.Node.State())
 
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+
 	go func() {
+		defer wg.Done()
+
 		for {
 			select {
-			case <-r.ExitChan:
+			case <-ctx.Done():
+				r.debugLogger.Msg("received signal from <-ctx.Done")
 				return
+
+			case <-r.ExitChan:
+				r.debugLogger.Msg("received signal from <-r.ExitChan")
+				return
+
 			case change := <-r.StateChangeChan:
 				r.debugLogger.Msg("raft state changed to: " + change.To.String())
 				r.handleState(change.To)
+
 			case err := <-r.ErrChan:
 				r.errorLogger.Err(err).Caller().Msg("Received an error")
+				return
 			}
 		}
 	}()
+
+	wg.Wait()
 }
 
 // Close stops participating in quorum election.
 func (r *Raft) Close() {
-	r.ExitChan <- true
+	r.debugLogger.Caller().Msg("(r *Raft) Close() is called")
 
-	r.Node.Close()
+	r.ExitChan <- true
+	close(r.ExitChan)
 	close(r.StateChangeChan)
 	close(r.ErrChan)
-	close(r.ExitChan)
+	r.Node.Close()
 }

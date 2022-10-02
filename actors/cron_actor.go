@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -33,16 +34,13 @@ func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetOnConfigUpdate(actor.configUpdateHandler)
+	actor.SetOnConfigDelete(actor.configDeleteHandler)
 
 	return actor, nil
 }
@@ -54,8 +52,8 @@ type CronActor struct {
 	IsFollower     chan bool
 }
 
-// updateHandler receives a config from jetstream and update the cron configuration
-func (actor *CronActor) updateHandler(msg *nats.Msg) {
+// configUpdateHandler receives a config from jetstream and update the cron configuration
+func (actor *CronActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}
@@ -63,13 +61,6 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configBytes, &conf)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-		return
-	}
-
-	// Save the config in KV store first before updating CronCollection.
-	_, err = actor.kv().Put(actor.streamName+"."+conf.ID, configBytes)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to save config")
 		return
 	}
 
@@ -77,11 +68,11 @@ func (actor *CronActor) updateHandler(msg *nats.Msg) {
 	actor.CronCollection.Update(conf)
 
 	// We are not running the new cron scheduler yet.
-	// That job is handled by OnBecomingLeaderSync.
+	// That job is handled by OnBecomingLeaderBlocking.
 }
 
-// deleteHandler listens to DELETE command and removes this particular cron scheduler
-func (actor *CronActor) deleteHandler(msg *nats.Msg) {
+// configDeleteHandler listens to DELETE command and removes this particular cron scheduler
+func (actor *CronActor) configDeleteHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := cron.CronConfig{}
@@ -89,12 +80,6 @@ func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 	err := json.Unmarshal(configBytes, &conf)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-		return
-	}
-
-	err = actor.kv().Delete(actor.streamName + "." + conf.ID)
-	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to delete config")
 		return
 	}
 
@@ -103,28 +88,29 @@ func (actor *CronActor) deleteHandler(msg *nats.Msg) {
 	// We still want to subscribe to jetstream to listen to more config changes
 }
 
-// Unsubscribe from stream
-func (actor *CronActor) Unsubscribe() (err error) {
-	if actor.subscription != nil {
-		err = actor.subscription.Unsubscribe()
-	}
-
-	return err
-}
-
-// OnBecomingLeaderSync turn on all cron schedulers.
-func (actor *CronActor) OnBecomingLeaderSync() {
+// OnBecomingLeaderBlocking turn on all cron schedulers.
+func (actor *CronActor) OnBecomingLeaderBlocking(ctx context.Context) {
 	for {
-		<-actor.IsLeader
-		actor.CronCollection.BecomesLeader()
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-actor.IsLeader:
+			actor.CronCollection.BecomesLeader()
+		}
 	}
 }
 
-// OnBecomingFollowerSync turn off all cron schedulers.
-func (actor *CronActor) OnBecomingFollowerSync() {
+// OnBecomingFollowerBlocking turn off all cron schedulers.
+func (actor *CronActor) OnBecomingFollowerBlocking(ctx context.Context) {
 	for {
-		<-actor.IsFollower
-		actor.CronCollection.BecomesFollower()
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-actor.IsFollower:
+			actor.CronCollection.BecomesFollower()
+		}
 	}
 }
 
@@ -143,7 +129,7 @@ func (actor *CronActor) OnBootLoadConfig() error {
 				return err
 			}
 
-			err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+			err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "UPDATE"), configBytes)
 			if err != nil {
 				actor.errorLogger.Err(err).Msg("failed to publish")
 			}
@@ -153,9 +139,10 @@ func (actor *CronActor) OnBootLoadConfig() error {
 	return nil
 }
 
-// ServeHTTP supports updating and deleting cron via HTTP.
-// Actor's HTTP handler always support only POST, PUT, and DELETE
-// HTTP GET should only be supported by the underlying struct.
+// ServeHTTP supports updating and deleting object configuration via HTTP.
+// Supported commands are POST, PUT, DELETE, and UNSUB
+// HTTP GET should only be supported by the underlying object.
+// Override this method if you want to do something custom.
 func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	configJSONBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -163,7 +150,42 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, r.Method), configJSONBytes)
+	// Unpack to get the ID
+	conf := cron.CronConfig{}
+
+	err = json.Unmarshal(configJSONBytes, &conf)
+	if err != nil {
+		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
+		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	command := actor.normalizeCommandFromHTTP(r)
+
+	// Update KV store
+	switch command {
+	case "UPDATE":
+		revision, err := actor.configPut(actor.streamName+"."+conf.ID, configJSONBytes)
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+
+		} else {
+			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
+		}
+
+	case "DELETE":
+		err = actor.configDelete(actor.streamName + "." + conf.ID)
+		if err != nil {
+			actor.errorLogger.Err(err).Msg("failed to delete config")
+			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Push config to listeners
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
 		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
 		return

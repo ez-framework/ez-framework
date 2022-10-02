@@ -37,6 +37,10 @@ type CronCollection struct {
 	errorLogger    *zerolog.Event
 }
 
+func (collection *CronCollection) workerQueueStreamName(config CronConfig) string {
+	return "ez-worker-" + config.WorkerQueue
+}
+
 // Update receives config update from jetstream and configure the cron scheduler
 func (collection *CronCollection) Update(config CronConfig) {
 	collection.Delete(config)
@@ -47,13 +51,13 @@ func (collection *CronCollection) Update(config CronConfig) {
 	collection.confCollection[config.ID] = config
 
 	scheduler.Do(func() {
-		_, err := collection.jc.Publish(config.WorkerQueue+".command:POST", []byte(`{}`))
+		_, err := collection.jc.Publish(collection.workerQueueStreamName(config)+".command:POST", []byte(`{}`))
 		if err != nil {
 			collection.errorLogger.Err(err).
 				Str("cron.id", config.ID).
 				Str("cron.schedule", config.Schedule).
 				Str("cron.timezone", config.Timezone).
-				Str("cron.worker-queue", config.WorkerQueue).
+				Str("cron.worker-queue", collection.workerQueueStreamName(config)).
 				Msg("failed to publish to JetStream")
 		}
 	})

@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/nats-io/graft"
@@ -27,16 +28,13 @@ func NewRaftActor(actorConfig ActorConfig) (*RaftActor, error) {
 		actor.actorConfig.StreamConfig.Retention = nats.LimitsPolicy
 	}
 
-	actor.setupLoggers()
-
-	err := actor.setupStream()
+	err := actor.setupConstructor()
 	if err != nil {
 		return nil, err
 	}
 
-	actor.SetPOSTSubscriber(actor.updateHandler)
-	actor.SetPUTSubscriber(actor.updateHandler)
-	actor.SetDELETESubscriber(actor.deleteHandler)
+	actor.SetOnConfigUpdate(actor.configUpdateHandler)
+	actor.SetOnConfigDelete(actor.configDeleteHandler)
 
 	return actor, nil
 }
@@ -59,8 +57,8 @@ func (actor *RaftActor) setRaft(raftNode *raft.Raft) {
 	actor.Raft.OnClosed = actor.OnClosed
 }
 
-// updateHandler receives a new raft config, and starts participating in Raft quorum
-func (actor *RaftActor) updateHandler(msg *nats.Msg) {
+// configUpdateHandler receives a new raft config, and starts participating in Raft quorum
+func (actor *RaftActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) {
 	configBytes := msg.Data
 
 	conf := raft.ConfigRaft{}
@@ -92,20 +90,11 @@ func (actor *RaftActor) updateHandler(msg *nats.Msg) {
 	actor.setRaft(raftNode)
 
 	actor.infoLogger.Msg("RaftActor is running")
-	actor.Raft.RunSubscriberAsync()
+	go actor.Raft.RunBlocking(ctx)
 }
 
-// deleteHandler listens to DELETE command and stop participating in Raft quorum
-func (actor *RaftActor) deleteHandler(msg *nats.Msg) {
-	// Stop listening to JetStream config changes.
-	err := actor.Unsubscribe()
-	if err != nil {
-		actor.errorLogger.Err(err).
-			Err(err).
-			Str("subjects", actor.subscribeSubjects()).
-			Msg("failed to unsubscribe from subjects")
-	}
-
+// configDeleteHandler listens to DELETE command and stop participating in Raft quorum
+func (actor *RaftActor) configDeleteHandler(ctx context.Context, msg *nats.Msg) {
 	// Close the raft
 	if actor.Raft != nil {
 		actor.Raft.Close()
@@ -120,7 +109,7 @@ func (actor *RaftActor) OnBootLoadConfig() error {
 		return err
 	}
 
-	err = actor.Publish(actor.keyWithCommand(actor.streamName, "POST"), configBytes)
+	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "UPDATE"), configBytes)
 	if err != nil {
 		actor.errorLogger.Err(err).Msg("failed to publish")
 	}

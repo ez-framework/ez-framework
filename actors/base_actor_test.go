@@ -46,31 +46,19 @@ func TestActorsConformToInterface(t *testing.T) {
 		},
 	}
 
-	actor2 := &ConfigActor{
+	actor2 := &CronActor{
 		Actor: Actor{
 			streamName: "testing",
 		},
 	}
 
-	actor3 := &ConfigWSServerActor{
+	actor3 := &RaftActor{
 		Actor: Actor{
 			streamName: "testing",
 		},
 	}
 
-	actor4 := &CronActor{
-		Actor: Actor{
-			streamName: "testing",
-		},
-	}
-
-	actor5 := &RaftActor{
-		Actor: Actor{
-			streamName: "testing",
-		},
-	}
-
-	actor6 := &WorkerActor{
+	actor4 := &WorkerActor{
 		Actor: Actor{
 			streamName: "testing",
 		},
@@ -80,6 +68,4 @@ func TestActorsConformToInterface(t *testing.T) {
 	funcTest(actor2)
 	funcTest(actor3)
 	funcTest(actor4)
-	funcTest(actor5)
-	funcTest(actor6)
 }

@@ -2,7 +2,6 @@ package actors
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ func init() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 }
 
-func TestLaunchAndSave(t *testing.T) {
+func TestSaveAndDeleteConfig(t *testing.T) {
 	server, nc, jetstreamContext := newNatsServer(t)
 	defer server.Shutdown()
 
@@ -28,47 +27,51 @@ func TestLaunchAndSave(t *testing.T) {
 	}
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigActor
-	configActorConfig := ActorConfig{
+
+	raftActorConfig := ActorConfig{
+		NatsAddr:         nats.DefaultURL,
+		HTTPAddr:         ":3000",
 		NatsConn:         nc,
 		JetStreamContext: jetstreamContext,
 		ConfigKV:         confkv,
 		StreamConfig: &nats.StreamConfig{
-			MaxAge:    3 * time.Second,
-			Retention: nats.WorkQueuePolicy,
+			MaxAge: 1 * time.Minute,
 		},
 	}
 
-	configActor, err := NewConfigActor(configActorConfig)
+	raftActor, err := NewRaftActor(raftActorConfig)
 	if err != nil {
 		t.Fatal("failed to create ConfigActor")
 	}
 
 	// Sending a config payload to be stored in KV store.
-	// In the real world, we are using the RunSubscriberAsync() to execute changes
-	// and Publish() to send update.
-	// Example: Publish(ez-config.command:POST)
-	//          Payload: {"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}
+	// In the real world, we are using the RunConfigListener() to execute changes
+	// and PublishConfig() to send update.
+	// Example: PublishConfig(ez-raft.command:POST)
+	//          Payload: {"LogDir":"./.data/","Name":"cluster","Size":3}
 	// But for testing, we'll do it synchronously.
 
 	raftConfigPayload := []byte(`{"LogDir":"./.data/","Name":"cluster","Size":3}`)
-	payload := []byte(fmt.Sprintf(`{"ez-raft": %s}`, raftConfigPayload))
 
-	msg := &nats.Msg{
-		Subject: "ez-config.command:POST",
-		Data:    payload,
-	}
-
-	configActor.RunSubscriberSync(msg)
+	raftActor.configPut(raftActor.streamName, raftConfigPayload)
 
 	// Check if we saved the config.
 	inBytes, err := confkv.GetConfigBytes("ez-raft")
 	if err != nil {
 		t.Fatal("failed to fetch config from KV store")
 	}
-	defer confkv.KV.Delete("ez-raft")
 
 	if !bytes.Equal(inBytes, raftConfigPayload) {
 		t.Fatalf("did not save the config correctly. Got: %s", inBytes)
+	}
+
+	err = raftActor.configDelete(raftActor.streamName)
+	if err != nil {
+		t.Fatal("failed to delete config on KV store")
+	}
+
+	_, err = confkv.GetConfigBytes("ez-raft")
+	if err == nil {
+		t.Fatal("config should have been gone")
 	}
 }

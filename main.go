@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/middleware"
@@ -11,20 +15,22 @@ import (
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/ez-framework/ez-framework/actors"
 	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/cron"
-	"github.com/ez-framework/ez-framework/http_logs"
 	"github.com/ez-framework/ez-framework/raft"
 )
 
 var outLog zerolog.Logger
 var errLog zerolog.Logger
+var dbgLog zerolog.Logger
 
 func init() {
 	outLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 	errLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	dbgLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 }
 
 func main() {
@@ -35,7 +41,7 @@ func main() {
 	flag.Parse()
 
 	// ---------------------------------------------------------------------------
-	// Example on how to connect to Jetstream
+	// How to connect to Jetstream
 
 	nc, err := nats.Connect(*natsAddr)
 	if err != nil {
@@ -49,7 +55,7 @@ func main() {
 	}
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create KV store for configuration
+	// How to create KV store for configuration
 
 	confkv, err := configkv.NewConfigKV(jetstreamContext)
 	if err != nil {
@@ -57,50 +63,14 @@ func main() {
 	}
 
 	// ---------------------------------------------------------------------------
-
-	logStreamMaxAge := 10 * time.Minute
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigActor
-	configActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
-		},
-	}
-	configActor, err := actors.NewConfigActor(configActorConfig)
-	if err != nil {
-		errLog.Fatal().Err(err).Msg("failed to create ConfigActor")
-	}
-	configActor.RunSubscriberAsync()
+	// Proper signal handling with cancellation context and errgroup
+	// This is needed to ensure that every actor finished cleanly before shutdown
+	ctx, done := context.WithCancel(context.Background())
+	wg, ctx := errgroup.WithContext(ctx)
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create ConfigWSActor to push config to WS clients
-	configWSActorConfig := actors.ActorConfig{
-		NatsAddr:         *natsAddr,
-		HTTPAddr:         *httpAddr,
-		NatsConn:         nc,
-		JetStreamContext: jetstreamContext,
-		ConfigKV:         confkv,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge:    1 * time.Minute,
-			Retention: nats.WorkQueuePolicy,
-		},
-	}
-	configWSActor, err := actors.NewConfigWSServerActor(configWSActorConfig)
+	// How to create a raft node as an actor
 
-	if err != nil {
-		errLog.Fatal().Err(err).Msg("failed to create ConfigWSActor")
-	}
-	configWSActor.RunSubscriberAsync()
-
-	// ---------------------------------------------------------------------------
-	// Example on how to create a raft node as an actor
 	raftActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
@@ -110,18 +80,15 @@ func main() {
 		StreamConfig: &nats.StreamConfig{
 			MaxAge: 1 * time.Minute,
 		},
-		LogsStreamConfig: &nats.StreamConfig{
-			MaxAge: logStreamMaxAge,
-		},
 	}
 	raftActor, err := actors.NewRaftActor(raftActorConfig)
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to create raftActor")
 	}
-	raftActor.RunSubscriberAsync()
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create cron scheduler as an actor
+	// How to create cron scheduler as an actor
+
 	cronActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
@@ -136,26 +103,39 @@ func main() {
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to create cronActor")
 	}
-	cronActor.RunSubscriberAsync()
-	go cronActor.OnBecomingLeaderSync()
-	go cronActor.OnBecomingFollowerSync()
-	cronActor.OnBootLoadConfig()
+	wg.Go(func() error {
+		cronActor.RunConfigListener(ctx)
+		return nil
+	})
+	wg.Go(func() error {
+		cronActor.OnBecomingLeaderBlocking(ctx)
+		return nil
+	})
+	wg.Go(func() error {
+		cronActor.OnBecomingFollowerBlocking(ctx)
+		return nil
+	})
 
 	// ---------------------------------------------------------------------------
-	// Example on how to run cron scheduler only when this service is the leader
+	// How to run cron scheduler only when this service is the leader
+
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		errLog.Debug().Msg("node is becoming a leader")
+		dbgLog.Debug().Msg("node is becoming a leader")
 		cronActor.IsLeader <- true
 	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
-		errLog.Debug().Msg("node is becoming a follower")
+		dbgLog.Debug().Msg("node is becoming a follower")
 		cronActor.IsFollower <- true
 	}
 
-	raftActor.OnBootLoadConfig()
+	wg.Go(func() error {
+		raftActor.RunConfigListener(ctx)
+		return nil
+	})
 
 	// ---------------------------------------------------------------------------
-	// Example on how to create a generic worker as an actor
+	// CronActor needs a target worker to execute the actual work
+	// We will create a generic worker actor called hello
 	workerActorConfig := actors.ActorConfig{
 		NatsAddr:         *natsAddr,
 		HTTPAddr:         *httpAddr,
@@ -171,14 +151,23 @@ func main() {
 	if err != nil {
 		errLog.Fatal().Err(err).Msg("failed to create workerActor")
 	}
-	workerActor.SetPOSTSubscriber(func(msg *nats.Msg) {
+	workerActor.SetOnConfigUpdate(func(ctx context.Context, msg *nats.Msg) {
+		// Pretend to do a big work
 		outLog.Info().Str("subject", msg.Subject).Bytes("content", msg.Data).Msg("hello world!")
 	})
-
-	workerActor.RunSubscriberAsync()
+	wg.Go(func() error {
+		workerActor.RunConfigListener(ctx)
+		return nil
+	})
 
 	// ---------------------------------------------------------------------------
-	// Example on how to mount the HTTP handlers of each actor
+	// Load all configurations on boot
+
+	raftActor.OnBootLoadConfig()
+	cronActor.OnBootLoadConfig()
+
+	// ---------------------------------------------------------------------------
+	// How to mount the HTTP handlers of each actor
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -186,40 +175,75 @@ func main() {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("welcome"))
 	})
-	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 
-	// As a common design, let the actor handles mutable HTTP methods
-	// and leave the GET methods to the underlying struct.
-	r.Method("POST", "/api/admin/configkv", configActor)
-	r.Method("PUT", "/api/admin/configkv", configActor)
-	r.Method("DELETE", "/api/admin/configkv", configActor)
-
-	// Websocket handler to push config to clients.
-	// Useful for IoT/edge services
-	r.Handle("/api/admin/configkv/ws", configWSActor)
-
-	// cronActor handles the creation and deletion of cron schedulers
-	r.Method("POST", "/api/admin/cron", cronActor)
-	r.Method("PUT", "/api/admin/cron", cronActor)
-	r.Method("DELETE", "/api/admin/cron", cronActor)
+	// Examples:
+	//   POST /api/admin/raft   -> becomes command=UPDATE
+	//   POST /api/admin/raft?command=UNSUB
+	//   DELETE /api/admin/raft -> becomes command=DELETE
+	r.Method("POST", "/api/admin/raft", raftActor)
+	r.Method("DELETE", "/api/admin/raft", raftActor)
 
 	// GET method for raft metadata is handled by the underlying Raft struct
 	r.Method("GET", "/api/admin/raft", raft.NewRaftHTTPGet(raftActor.Raft))
 
-	// GET method for displaying cron metadata is handled by the underlying CronCollection struct
+	// Examples:
+	//   POST /api/admin/cron
+	//   DELETE /api/admin/cron
+	r.Method("POST", "/api/admin/cron", cronActor)
+	r.Method("DELETE", "/api/admin/cron", cronActor)
+
+	// GET method for cron metadata is handled by the underlying CronCollection struct
 	r.Method("GET", "/api/admin/cron", cron.NewCronCollectionHTTPGet(cronActor.CronCollection))
 
-	// GET method for displaying logs
-	natsLogger, err := http_logs.NewHTTPLogs(http_logs.HTTPLogsConfig{
-		JetStreamContext: jetstreamContext,
-		StreamConfig: &nats.StreamConfig{
-			MaxAge: logStreamMaxAge,
-		},
-	})
-	if err == nil {
-		r.Method("GET", "/api/admin/logs", natsLogger)
-	}
+	// Shows all the config stored
+	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 
 	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
-	http.ListenAndServe(*httpAddr, r)
+	httpServer := &http.Server{Addr: *httpAddr, Handler: r}
+	wg.Go(func() error {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
+
+	// -------------------------------------------------------
+	// Handle shutdown signals
+
+	// goroutine to check for signals to gracefully finish everything
+	wg.Go(func() error {
+		signalChannel := make(chan os.Signal, 1)
+		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+
+		defer func() {
+			signal.Stop(signalChannel)
+			done()
+		}()
+
+		select {
+		case sig := <-signalChannel:
+			outLog.Info().Str("signal", sig.String()).Msg("signal received")
+			done()
+			return nil
+
+		case <-ctx.Done():
+			outLog.Info().Msg("closing signal goroutine")
+			httpServer.Shutdown(context.Background())
+			return ctx.Err()
+		}
+	})
+
+	// wait for all errgroup goroutines
+	err = wg.Wait()
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			errLog.Error().Err(err).Msg("context was canceled")
+		default:
+			errLog.Error().Err(err).Msg("received error")
+		}
+
+	} else {
+		outLog.Info().Msg("all workers are done, shutting down..")
+	}
 }
