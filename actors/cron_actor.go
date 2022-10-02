@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog"
 
 	"github.com/ez-framework/ez-framework/cron"
 	"github.com/ez-framework/ez-framework/http_helpers"
@@ -146,7 +147,7 @@ func (actor *CronActor) OnBootLoadConfig() error {
 func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	configJSONBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -155,8 +156,8 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	err = json.Unmarshal(configJSONBytes, &conf)
 	if err != nil {
-		actor.errorLogger.Err(err).Msg("failed to unmarshal config")
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to unmarshal config")
+		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -167,19 +168,19 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "UPDATE":
 		revision, err := actor.configPut(actor.streamName+"."+conf.ID, configJSONBytes)
 		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
-			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to update config in KV store")
+			http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 			return
 
 		} else {
-			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
+			actor.log(zerolog.InfoLevel).Int64("revision", int64(revision)).Msg("updated config in KV store")
 		}
 
 	case "DELETE":
 		err = actor.configDelete(actor.streamName + "." + conf.ID)
 		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to delete config")
-			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to delete config")
+			http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -187,7 +188,7 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Push config to listeners
 	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}
 

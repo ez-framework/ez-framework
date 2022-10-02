@@ -6,6 +6,7 @@ import (
 
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog"
 
 	"github.com/ez-framework/ez-framework/raft"
 )
@@ -89,7 +90,7 @@ func (actor *RaftActor) configUpdateHandler(ctx context.Context, msg *nats.Msg) 
 	}
 	actor.setRaft(raftNode)
 
-	actor.infoLogger.Msg("RaftActor is running")
+	actor.log(zerolog.InfoLevel).Msg("RaftActor is running")
 	go actor.Raft.RunBlocking(ctx)
 }
 

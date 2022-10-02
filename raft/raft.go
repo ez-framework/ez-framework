@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/graft"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/diode"
 )
 
 // ConfigRaft is the configuration to spawn a new Raft node
@@ -67,26 +68,12 @@ func NewRaft(conf ConfigRaft) (*Raft, error) {
 		return nil, err
 	}
 
-	outLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	errLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	outWriter := diode.NewWriter(os.Stdout, 1000, 0, nil)
+	errWriter := diode.NewWriter(os.Stderr, 1000, 0, nil)
 
-	r.infoLogger = outLog.Info().
-		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
-		Str("raft.nats.addr", r.NatsAddr).
-		Str("raft.log.dir", conf.LogDir)
-
-	r.errorLogger = errLog.Error().
-		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
-		Str("raft.nats.addr", r.NatsAddr).
-		Str("raft.log.dir", conf.LogDir)
-
-	r.debugLogger = errLog.Debug().
-		Str("raft.cluster.name", r.Name).
-		Int("raft.cluster.expected-size", r.ExpectedClusterSize).
-		Str("raft.nats.addr", r.NatsAddr).
-		Str("raft.log.dir", conf.LogDir)
+	r.infoLogger = zerolog.New(zerolog.ConsoleWriter{Out: outWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	r.errorLogger = zerolog.New(zerolog.ConsoleWriter{Out: errWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	r.debugLogger = zerolog.New(zerolog.ConsoleWriter{Out: errWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 
 	return r, nil
 }
@@ -110,37 +97,61 @@ type Raft struct {
 	OnClosed            func(state graft.State)
 
 	clusterInfo graft.ClusterInfo
-	infoLogger  *zerolog.Event
-	errorLogger *zerolog.Event
-	debugLogger *zerolog.Event
+	infoLogger  zerolog.Logger
+	errorLogger zerolog.Logger
+	debugLogger zerolog.Logger
+}
+
+func (r *Raft) log(lvl zerolog.Level) *zerolog.Event {
+	switch lvl {
+	case zerolog.ErrorLevel:
+		return r.errorLogger.Error().
+			Str("raft.cluster.name", r.Name).
+			Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+			Str("raft.nats.addr", r.NatsAddr).
+			Str("raft.log.dir", r.LogDir)
+
+	case zerolog.DebugLevel:
+		return r.debugLogger.Debug().
+			Str("raft.cluster.name", r.Name).
+			Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+			Str("raft.nats.addr", r.NatsAddr).
+			Str("raft.log.dir", r.LogDir)
+	default:
+		return r.infoLogger.Info().
+			Str("raft.cluster.name", r.Name).
+			Int("raft.cluster.expected-size", r.ExpectedClusterSize).
+			Str("raft.nats.addr", r.NatsAddr).
+			Str("raft.log.dir", r.LogDir)
+	}
 }
 
 // handleState handles the changing of Raft node's state
 func (r *Raft) handleState(state graft.State) {
 	switch state {
 	case graft.LEADER:
-		r.debugLogger.Msg("becoming leader")
+		r.log(zerolog.DebugLevel).Msg("becoming leader")
 
 		if r.OnBecomingLeader != nil {
 			r.OnBecomingLeader(state)
 		}
 
 	case graft.FOLLOWER:
-		r.debugLogger.Msg("becoming follower")
+		r.log(zerolog.DebugLevel).Msg("becoming follower")
 
 		if r.OnBecomingFollower != nil {
 			r.OnBecomingFollower(state)
 		}
 
 	case graft.CANDIDATE:
-		r.debugLogger.Msg("becoming candidate")
+		r.log(zerolog.DebugLevel).Msg("becoming candidate")
 
 		if r.OnBecomingCandidate != nil {
 			r.OnBecomingCandidate(state)
 		}
 
 	case graft.CLOSED:
-		r.debugLogger.Msg("Closed")
+		r.log(zerolog.DebugLevel).Msg("raft is closed")
 
 		if r.OnClosed != nil {
 			r.OnClosed(state)
@@ -162,19 +173,18 @@ func (r *Raft) RunBlocking(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				r.debugLogger.Msg("received signal from <-ctx.Done")
+				r.log(zerolog.DebugLevel).Msg("received signal from <-ctx.Done")
 				return
 
 			case <-r.ExitChan:
-				r.debugLogger.Msg("received signal from <-r.ExitChan")
+				r.log(zerolog.DebugLevel).Msg("received signal from <-r.ExitChan")
 				return
 
 			case change := <-r.StateChangeChan:
-				r.debugLogger.Msg("raft state changed to: " + change.To.String())
 				r.handleState(change.To)
 
 			case err := <-r.ErrChan:
-				r.errorLogger.Err(err).Caller().Msg("Received an error")
+				r.log(zerolog.ErrorLevel).Caller().Err(err).Msg("Received an error")
 				return
 			}
 		}
@@ -185,8 +195,6 @@ func (r *Raft) RunBlocking(ctx context.Context) {
 
 // Close stops participating in quorum election.
 func (r *Raft) Close() {
-	r.debugLogger.Caller().Msg("(r *Raft) Close() is called")
-
 	r.ExitChan <- true
 	close(r.ExitChan)
 	close(r.StateChangeChan)

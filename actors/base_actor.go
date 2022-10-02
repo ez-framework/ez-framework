@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/diode"
 
 	"github.com/ez-framework/ez-framework/configkv"
 	"github.com/ez-framework/ez-framework/http_helpers"
@@ -71,9 +72,9 @@ type Actor struct {
 	onDoneSubscribing func() error
 	subscriptionChan  chan *nats.Msg
 	subscriptions     []*nats.Subscription
-	infoLogger        *zerolog.Event
-	errorLogger       *zerolog.Event
-	debugLogger       *zerolog.Event
+	infoLogger        zerolog.Logger
+	errorLogger       zerolog.Logger
+	debugLogger       zerolog.Logger
 }
 
 // setupConstructor sets everything that needs to be setup inside the constructor
@@ -95,7 +96,7 @@ func (actor *Actor) setupConstructor() error {
 
 	err := actor.setupStream()
 	if err != nil {
-		actor.errorLogger.Caller().
+		actor.log(zerolog.ErrorLevel).Caller().
 			Str("method", "setupConstructor()").
 			Err(err).Msg("failed to setup stream")
 	}
@@ -105,21 +106,30 @@ func (actor *Actor) setupConstructor() error {
 
 // setupLoggers
 func (actor *Actor) setupLoggers() {
-	outLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	errLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	dbgLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	outWriter := diode.NewWriter(os.Stdout, 1000, 0, nil)
+	errWriter := diode.NewWriter(os.Stderr, 1000, 0, nil)
 
-	actor.infoLogger = outLog.Info().
-		Str("stream.name", actor.streamName).
-		Str("stream.subjects", actor.subscribeSubjects())
+	actor.infoLogger = zerolog.New(zerolog.ConsoleWriter{Out: outWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	actor.errorLogger = zerolog.New(zerolog.ConsoleWriter{Out: errWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+	actor.debugLogger = zerolog.New(zerolog.ConsoleWriter{Out: errWriter, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
+}
 
-	actor.errorLogger = errLog.Error().
-		Str("stream.name", actor.streamName).
-		Str("stream.subjects", actor.subscribeSubjects())
+func (actor *Actor) log(lvl zerolog.Level) *zerolog.Event {
+	switch lvl {
+	case zerolog.ErrorLevel:
+		return actor.errorLogger.Error().
+			Str("stream.name", actor.streamName).
+			Str("stream.subjects", actor.subscribeSubjects())
 
-	actor.debugLogger = dbgLog.Debug().
-		Str("stream.name", actor.streamName).
-		Str("stream.subjects", actor.subscribeSubjects())
+	case zerolog.DebugLevel:
+		return actor.debugLogger.Debug().
+			Str("stream.name", actor.streamName).
+			Str("stream.subjects", actor.subscribeSubjects())
+	default:
+		return actor.infoLogger.Info().
+			Str("stream.name", actor.streamName).
+			Str("stream.subjects", actor.subscribeSubjects())
+	}
 }
 
 // setupStream creates a dedicated stream for this actor
@@ -138,7 +148,7 @@ func (actor *Actor) setupStream() error {
 		}
 
 		if err != nil {
-			actor.errorLogger.Caller().Err(err).
+			actor.log(zerolog.ErrorLevel).Caller().Err(err).
 				Str("method", "setupStream()").
 				Msg("failed to create or get a stream")
 
@@ -247,7 +257,7 @@ func (actor *Actor) SetDownstreams(downstreams ...string) {
 func (actor *Actor) PublishConfig(key string, data []byte) error {
 	_, err := actor.jc().Publish(key, data)
 	if err != nil {
-		actor.errorLogger.Caller().Err(err).
+		actor.log(zerolog.ErrorLevel).Caller().Err(err).
 			Str("publish.key", key).
 			Msg("failed to publish to JetStream")
 	}
@@ -265,7 +275,7 @@ func (actor *Actor) runSubscriberOnce(ctx context.Context, msg *nats.Msg) {
 
 // RunConfigListener listens to config changes and execute hooks
 func (actor *Actor) RunConfigListener(ctx context.Context) {
-	actor.infoLogger.Msg("subscribing to nats subjects")
+	actor.log(zerolog.InfoLevel).Msg("subscribing to nats subjects")
 
 	var err error
 	var sub *nats.Subscription
@@ -293,18 +303,24 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 			for {
 				select {
 				case <-ctx.Done():
-					actor.debugLogger.Bool("ctx.done", true).Msg("received exit signal from the user. Exiting for loop")
+					actor.log(zerolog.DebugLevel).
+						Bool("ctx.done", true).
+						Msg("received exit signal from the user. Exiting for loop")
 
 					if actor.onDoneSubscribing != nil {
 						err = actor.onDoneSubscribing()
 						if err != nil {
-							actor.debugLogger.Bool("ctx.done", true).Msg("failed to run onDoneSubscribing()")
+							actor.log(zerolog.DebugLevel).
+								Bool("ctx.done", true).
+								Msg("failed to run onDoneSubscribing()")
 						}
 					}
 
 					err = actor.unsubscribeOne(i)
 					if err != nil {
-						actor.debugLogger.Bool("ctx.done", true).Msg("failed to unsubscribe from stream")
+						actor.log(zerolog.DebugLevel).
+							Bool("ctx.done", true).
+							Msg("failed to unsubscribe from stream")
 					}
 
 					return
@@ -320,7 +336,7 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 
 // OnBootLoadConfig loads the configuration to setup the underlying object
 func (actor *Actor) OnBootLoadConfig() error {
-	actor.debugLogger.Msg("OnBootLoadConfig() is not implemented")
+	actor.log(zerolog.DebugLevel).Msg("OnBootLoadConfig() is not implemented")
 	return nil
 }
 
@@ -360,7 +376,7 @@ func (actor *Actor) normalizeCommandFromHTTP(r *http.Request) string {
 func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	configJSONBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -371,19 +387,19 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "UPDATE":
 		revision, err := actor.configPut(actor.streamName, configJSONBytes)
 		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to update config in KV store")
-			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to update config in KV store")
+			http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 			return
 
 		} else {
-			actor.infoLogger.Int64("revision", int64(revision)).Msg("updated config in KV store")
+			actor.log(zerolog.InfoLevel).Int64("revision", int64(revision)).Msg("updated config in KV store")
 		}
 
 	case "DELETE":
 		err := actor.configDelete(actor.keyWithoutCommand(actor.streamName))
 		if err != nil {
-			actor.errorLogger.Err(err).Msg("failed to delete config in KV store")
-			http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to delete config in KV store")
+			http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 			return
 		}
 	}
@@ -391,7 +407,7 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Push config to listeners
 	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
-		http_helpers.RenderJSONError(actor.errorLogger, w, r, err, http.StatusInternalServerError)
+		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}
 

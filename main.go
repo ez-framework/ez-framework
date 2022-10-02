@@ -6,8 +6,6 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/middleware"
@@ -25,12 +23,10 @@ import (
 
 var outLog zerolog.Logger
 var errLog zerolog.Logger
-var dbgLog zerolog.Logger
 
 func init() {
 	outLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 	errLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
-	dbgLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Timestamp().Logger()
 }
 
 func main() {
@@ -66,6 +62,8 @@ func main() {
 	// Proper signal handling with cancellation context and errgroup
 	// This is needed to ensure that every actor finished cleanly before shutdown
 	ctx, done := context.WithCancel(context.Background())
+	defer done()
+
 	wg, ctx := errgroup.WithContext(ctx)
 
 	// ---------------------------------------------------------------------------
@@ -120,11 +118,11 @@ func main() {
 	// How to run cron scheduler only when this service is the leader
 
 	raftActor.OnBecomingLeader = func(state graft.State) {
-		dbgLog.Debug().Msg("node is becoming a leader")
 		cronActor.IsLeader <- true
 	}
+	raftActor.OnBecomingCandidate = func(state graft.State) {
+	}
 	raftActor.OnBecomingFollower = func(state graft.State) {
-		dbgLog.Debug().Msg("node is becoming a follower")
 		cronActor.IsFollower <- true
 	}
 
@@ -198,9 +196,10 @@ func main() {
 	// Shows all the config stored
 	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 
-	outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 	httpServer := &http.Server{Addr: *httpAddr, Handler: r}
+
 	wg.Go(func() error {
+		outLog.Info().Str("http.addr", *httpAddr).Msg("running an HTTP server...")
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return err
 		}
@@ -212,25 +211,10 @@ func main() {
 
 	// goroutine to check for signals to gracefully finish everything
 	wg.Go(func() error {
-		signalChannel := make(chan os.Signal, 1)
-		signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
-
-		defer func() {
-			signal.Stop(signalChannel)
-			done()
-		}()
-
-		select {
-		case sig := <-signalChannel:
-			outLog.Info().Str("signal", sig.String()).Msg("signal received")
-			done()
-			return nil
-
-		case <-ctx.Done():
-			outLog.Info().Msg("closing signal goroutine")
-			httpServer.Shutdown(context.Background())
-			return ctx.Err()
-		}
+		<-ctx.Done()
+		outLog.Info().Msg("closing signal goroutine")
+		httpServer.Shutdown(context.Background())
+		return ctx.Err()
 	})
 
 	// wait for all errgroup goroutines
