@@ -190,26 +190,26 @@ func (actor *Actor) kv() nats.KeyValue {
 }
 
 // keyWithCommand appends the command at the end of the key.
-// The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
+// The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) keyWithCommand(key, command string) string {
 	return key + ".command:" + command
 }
 
 // keyWithoutCommand strips the command which is appended at the end.
-// The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
+// The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) keyWithoutCommand(key string) string {
 	keyEndIndex := strings.Index(key, ".command:")
 	return key[0:keyEndIndex]
 }
 
 // keyHasCommand checks if the nats key has a command.
-// The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
+// The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) keyHasCommand(key, command string) bool {
 	return strings.HasSuffix(key, ".command:"+command)
 }
 
 // commandFromKey checks if the nats key has a command.
-// The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
+// The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) commandFromKey(key string) string {
 	chunks := strings.Split(key, ".command:")
 	if len(chunks) >= 2 {
@@ -261,7 +261,7 @@ func (actor *Actor) SetDownstreams(downstreams ...string) {
 }
 
 // PublishConfig data into JetStream with a nats key.
-// The nats key looks like this: stream-name.optional-key.command:POST|PUT|DELETE.
+// The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) PublishConfig(key string, data []byte) error {
 	_, err := actor.jc().Publish(key, data)
 	if err != nil {

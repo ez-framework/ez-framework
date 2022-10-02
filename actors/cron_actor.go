@@ -97,6 +97,7 @@ func (actor *CronActor) OnBecomingLeaderBlocking(ctx context.Context) {
 			return
 
 		case <-actor.IsLeader:
+			actor.log(zerolog.DebugLevel).Msg("CronActor becomes a leader")
 			actor.CronCollection.BecomesLeader()
 		}
 	}
@@ -110,6 +111,7 @@ func (actor *CronActor) OnBecomingFollowerBlocking(ctx context.Context) {
 			return
 
 		case <-actor.IsFollower:
+			actor.log(zerolog.DebugLevel).Msg("CronActor becomes a follower")
 			actor.CronCollection.BecomesFollower()
 		}
 	}
@@ -126,13 +128,13 @@ func (actor *CronActor) OnBootLoadConfig() error {
 		if strings.HasPrefix(configKey, actor.streamName+".") {
 			configBytes, err := actor.ConfigKV.GetConfigBytes(configKey)
 			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to get config JSON bytes")
+				actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to get config JSON bytes")
 				return err
 			}
 
 			err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, "UPDATE"), configBytes)
 			if err != nil {
-				actor.errorLogger.Err(err).Msg("failed to publish")
+				actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to publish")
 			}
 		}
 	}
@@ -188,6 +190,7 @@ func (actor *CronActor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Push config to listeners
 	err = actor.PublishConfig(actor.keyWithCommand(actor.streamName, command), configJSONBytes)
 	if err != nil {
+		actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to publish config")
 		http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
 		return
 	}

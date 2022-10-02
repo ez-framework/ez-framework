@@ -48,7 +48,7 @@ func TestSaveAndDeleteConfig(t *testing.T) {
 	// Sending a config payload to be stored in KV store.
 	// In the real world, we are using the RunConfigListener() to execute changes
 	// and PublishConfig() to send update.
-	// Example: PublishConfig(ez-raft.command:POST)
+	// Example: PublishConfig(ez-raft.command:UPDATE)
 	//          Payload: {"LogDir":"./.data/","Name":"cluster","Size":3}
 	// But for testing, we'll do it synchronously.
 
