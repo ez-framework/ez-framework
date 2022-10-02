@@ -132,6 +132,8 @@ func (collection *CronCollection) Delete(config CronConfig) {
 
 // StopAll cron schedulers.
 func (collection *CronCollection) StopAll() {
+	collection.log(zerolog.DebugLevel).Msg("CronCollection.StopAll() is triggered. Stopping all cronjobs...")
+
 	for _, existing := range collection.c {
 		existing.Stop()
 	}
@@ -139,6 +141,8 @@ func (collection *CronCollection) StopAll() {
 
 // StartAll cron schedulers.
 func (collection *CronCollection) StartAll() {
+	collection.log(zerolog.DebugLevel).Msg("CronCollection.StartAll() is triggered. Running all cronjobs...")
+
 	for _, existing := range collection.c {
 		existing.StartAsync()
 	}
