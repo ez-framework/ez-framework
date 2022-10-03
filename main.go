@@ -202,6 +202,9 @@ func main() {
 	// Shows all the config stored
 	r.Method("GET", "/api/admin/configkv", configkv.NewConfigKVHTTPGetAll(confkv))
 
+	// Worker is able to receive work from websocket as well
+	r.HandleFunc("/api/admin/ws/worker/hello", workerActor.WSHandler)
+
 	httpServer := &http.Server{Addr: *httpAddr, Handler: r}
 
 	wg.Go(func() error {

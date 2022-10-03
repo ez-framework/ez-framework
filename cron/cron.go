@@ -46,7 +46,7 @@ type CronCollectionConfig struct {
 // NewCronCollection is the constructor for CronCollection
 func NewCronCollection(ccc CronCollectionConfig) *CronCollection {
 	cc := &CronCollection{
-		jc:               ccc.JetStreamContext,
+		jsc:              ccc.JetStreamContext,
 		schedulers:       make(map[string]*gocron.Scheduler),
 		schedulerConfigs: make(map[string]CronConfig),
 		jobs:             make(map[string]*gocron.Job),
@@ -71,7 +71,7 @@ type CronCollection struct {
 	schedulers       map[string]*gocron.Scheduler
 	schedulerConfigs map[string]CronConfig
 	jobs             map[string]*gocron.Job
-	jc               nats.JetStreamContext
+	jsc              nats.JetStreamContext
 	configKV         *configkv.ConfigKV
 	mtx              sync.RWMutex
 	infoLogger       zerolog.Logger
@@ -179,7 +179,7 @@ func (collection *CronCollection) Update(config CronConfig) {
 			Str("cron.worker-queue", collection.workerQueueStreamName(config)).
 			Msg("about to publish to JetStream to trigger work on worker queue")
 
-		_, err := collection.jc.Publish(collection.workerQueueStreamName(config)+".command:UPDATE", []byte(`{}`))
+		_, err := collection.jsc.Publish(collection.workerQueueStreamName(config)+".command:UPDATE", []byte(`{}`))
 		if err != nil {
 			collection.log(zerolog.ErrorLevel).Caller().Err(err).
 				Str("cron.id", config.ID).

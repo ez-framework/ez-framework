@@ -7,6 +7,7 @@ require (
 	github.com/go-chi/chi/v5 v5.0.7
 	github.com/go-chi/render v1.0.2
 	github.com/go-co-op/gocron v1.17.0
+	github.com/gorilla/websocket v1.5.0
 	github.com/nats-io/graft v0.0.0-20220322173617-5f246deca4c2
 	github.com/nats-io/nats-server/v2 v2.7.4
 	github.com/nats-io/nats.go v1.16.0
