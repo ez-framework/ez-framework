@@ -34,15 +34,24 @@ type CronStatus struct {
 	RunCount    int
 }
 
+// CronCollectionConfig
+type CronCollectionConfig struct {
+	// JetStreamContext
+	JetStreamContext nats.JetStreamContext
+
+	// ConfigKV
+	ConfigKV *configkv.ConfigKV
+}
+
 // NewCronCollection is the constructor for CronCollection
-func NewCronCollection(jc nats.JetStreamContext, configKV *configkv.ConfigKV) *CronCollection {
+func NewCronCollection(ccc CronCollectionConfig) *CronCollection {
 	cc := &CronCollection{
-		jc:               jc,
+		jc:               ccc.JetStreamContext,
 		schedulers:       make(map[string]*gocron.Scheduler),
 		schedulerConfigs: make(map[string]CronConfig),
 		jobs:             make(map[string]*gocron.Job),
 		mtx:              sync.RWMutex{},
-		configKV:         configKV,
+		configKV:         ccc.ConfigKV,
 	}
 
 	outWriter := diode.NewWriter(os.Stdout, 1000, 0, nil)
@@ -85,25 +94,21 @@ func (collection *CronCollection) log(lvl zerolog.Level) *zerolog.Event {
 	}
 }
 
-// kv gets the underlying KV store
-func (collection *CronCollection) kv() nats.KeyValue {
-	return collection.configKV.KV
-}
-
+// saveStatus
 func (collection *CronCollection) saveStatus(configID string, statusBytes []byte) error {
-	_, err := collection.kv().Put("ez-cron-status."+configID, statusBytes)
+	_, err := collection.configKV.Put("ez-cron-status."+configID, statusBytes)
 	return err
 }
 
+// getStatus
 func (collection *CronCollection) getStatus(configID string) (CronStatus, error) {
 	status := CronStatus{}
 
-	entry, err := collection.kv().Get("ez-cron-status." + configID)
+	statusBytes, err := collection.configKV.GetConfigBytes("ez-cron-status." + configID)
 	if err != nil {
 		return status, err
 	}
 
-	statusBytes := entry.Value()
 	err = json.Unmarshal(statusBytes, &status)
 	if err != nil {
 		return status, err
@@ -151,7 +156,10 @@ func (collection *CronCollection) Update(config CronConfig) {
 
 	location, err := time.LoadLocation(config.Timezone)
 	if err != nil {
-		collection.log(zerolog.ErrorLevel).Caller().Err(err).Msg("unable to detect timezone, defaulting to UTC")
+		collection.log(zerolog.ErrorLevel).Caller().Err(err).
+			Bool("harmless", true).
+			Msg("unable to detect timezone, defaulting to UTC")
+
 		location = time.UTC
 	}
 
@@ -223,15 +231,15 @@ func (collection *CronCollection) BecomesFollower() {
 
 // Delete a cron scheduler configuration
 func (collection *CronCollection) Delete(config CronConfig) {
-	collection.mtx.Lock()
-	defer collection.mtx.Unlock()
-
 	existing, ok := collection.schedulers[config.ID]
 	if ok {
 		existing.Stop()
+
+		collection.mtx.Lock()
 		delete(collection.schedulers, config.ID)
 		delete(collection.schedulerConfigs, config.ID)
 		delete(collection.jobs, config.ID)
+		collection.mtx.Unlock()
 	}
 }
 

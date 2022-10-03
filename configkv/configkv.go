@@ -43,6 +43,11 @@ func (configkv *ConfigKV) setupConfigKVStore() error {
 	return err
 }
 
+// Put is a wrapper on Nats KV.Put
+func (configkv *ConfigKV) Put(key string, value []byte) (uint64, error) {
+	return configkv.KV.Put(key, value)
+}
+
 // GetConfigBytes returns config from the KV backend in bytes
 func (configkv *ConfigKV) GetConfigBytes(key string) ([]byte, error) {
 	entry, err := configkv.KV.Get(key)

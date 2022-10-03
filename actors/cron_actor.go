@@ -18,13 +18,18 @@ import (
 func NewCronActor(actorConfig ActorConfig) (*CronActor, error) {
 	name := "ez-cron"
 
+	ccc := cron.CronCollectionConfig{
+		JetStreamContext: actorConfig.Nats.JetStreamContext,
+		ConfigKV:         actorConfig.ConfigKV,
+	}
+
 	actor := &CronActor{
 		Actor: Actor{
 			config:     actorConfig,
 			streamName: name,
 			ConfigKV:   actorConfig.ConfigKV,
 		},
-		CronCollection: cron.NewCronCollection(actorConfig.Nats.JetStreamContext, actorConfig.ConfigKV),
+		CronCollection: cron.NewCronCollection(ccc),
 		IsLeader:       make(chan bool),
 		IsFollower:     make(chan bool),
 	}
@@ -125,6 +130,7 @@ func (actor *CronActor) OnBootLoadConfig() error {
 	}
 
 	for _, configKey := range keys {
+		// example: ez-cron.1664724638
 		if strings.HasPrefix(configKey, actor.streamName+".") {
 			configBytes, err := actor.ConfigKV.GetConfigBytes(configKey)
 			if err != nil {

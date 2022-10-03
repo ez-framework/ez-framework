@@ -51,19 +51,40 @@ type ActorConfig struct {
 
 // IActor is the interface to conform to for all actors
 type IActor interface {
+	// GetStreamName
 	GetStreamName() string
+
+	// RunConfigListener
 	RunConfigListener(context.Context)
+
+	// PublishConfig
 	PublishConfig(string, []byte) error
+
+	// ServeHTTP
 	ServeHTTP(http.ResponseWriter, *http.Request)
+
+	// OnBootLoadConfig
 	OnBootLoadConfig() error
 
+	// SetOnConfigUpdate
 	SetOnConfigUpdate(func(context.Context, *nats.Msg))
+
+	// SetOnConfigDelete
 	SetOnConfigDelete(func(context.Context, *nats.Msg))
+
+	// SetDownstreams
 	SetDownstreams(...string)
 
+	// setupStream
 	setupStream() error
-	jc() nats.JetStreamContext
+
+	// jsc
+	jsc() nats.JetStreamContext
+
+	// kv
 	kv() nats.KeyValue
+
+	// unsubscribeAll
 	unsubscribeAll() error
 }
 
@@ -72,17 +93,16 @@ type IActor interface {
 type Actor struct {
 	ConfigKV *configkv.ConfigKV
 
-	streamName        string
-	config            ActorConfig
-	wg                sync.WaitGroup
-	subscribers       map[string]func(context.Context, *nats.Msg)
-	downstreams       []string
-	onDoneSubscribing func() error
-	subscriptionChan  chan *nats.Msg
-	subscriptions     []*nats.Subscription
-	infoLogger        zerolog.Logger
-	errorLogger       zerolog.Logger
-	debugLogger       zerolog.Logger
+	streamName       string
+	config           ActorConfig
+	wg               sync.WaitGroup
+	subscribers      map[string]func(context.Context, *nats.Msg)
+	downstreams      []string
+	subscriptionChan chan *nats.Msg
+	subscriptions    []*nats.Subscription
+	infoLogger       zerolog.Logger
+	errorLogger      zerolog.Logger
+	debugLogger      zerolog.Logger
 }
 
 // setupConstructor sets everything that needs to be setup inside the constructor
@@ -90,6 +110,8 @@ func (actor *Actor) setupConstructor() error {
 	if actor.config.Workers == 0 {
 		actor.config.Workers = 1
 	}
+
+	// We want to set this really high to avoid Nats giving us slow subscriber error
 	if actor.config.Nats.StreamChanBuffer < 64000 {
 		actor.config.Nats.StreamChanBuffer = 64000
 	}
@@ -149,10 +171,10 @@ func (actor *Actor) setupStream() error {
 	actor.config.Nats.StreamConfig.Name = actor.streamName
 	actor.config.Nats.StreamConfig.Subjects = append(actor.config.Nats.StreamConfig.Subjects, actor.subscribeSubjects())
 
-	_, err := actor.jc().AddStream(actor.config.Nats.StreamConfig)
+	_, err := actor.jsc().AddStream(actor.config.Nats.StreamConfig)
 	if err != nil {
 		if err.Error() == "nats: stream name already in use" {
-			_, err = actor.jc().UpdateStream(actor.config.Nats.StreamConfig)
+			_, err = actor.jsc().UpdateStream(actor.config.Nats.StreamConfig)
 		}
 
 		if err != nil {
@@ -180,13 +202,18 @@ func (actor *Actor) subscribeSubjects() string {
 }
 
 // jc gets the JetStreamContext
-func (actor *Actor) jc() nats.JetStreamContext {
+func (actor *Actor) jsc() nats.JetStreamContext {
 	return actor.config.Nats.JetStreamContext
 }
 
 // kv gets the underlying KV store
 func (actor *Actor) kv() nats.KeyValue {
 	return actor.ConfigKV.KV
+}
+
+// flush Nats connection
+func (actor *Actor) flush() error {
+	return actor.config.Nats.Conn.Flush()
 }
 
 // keyWithCommand appends the command at the end of the key.
@@ -204,9 +231,9 @@ func (actor *Actor) keyWithoutCommand(key string) string {
 
 // keyHasCommand checks if the nats key has a command.
 // The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
-func (actor *Actor) keyHasCommand(key, command string) bool {
-	return strings.HasSuffix(key, ".command:"+command)
-}
+// func (actor *Actor) keyHasCommand(key, command string) bool {
+// 	return strings.HasSuffix(key, ".command:"+command)
+// }
 
 // commandFromKey checks if the nats key has a command.
 // The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
@@ -263,12 +290,15 @@ func (actor *Actor) SetDownstreams(downstreams ...string) {
 // PublishConfig data into JetStream with a nats key.
 // The nats key looks like this: stream-name.optional-key.command:UPDATE|DELETE.
 func (actor *Actor) PublishConfig(key string, data []byte) error {
-	_, err := actor.jc().Publish(key, data)
+	_, err := actor.jsc().Publish(key, data)
 	if err != nil {
 		actor.log(zerolog.ErrorLevel).Caller().Err(err).
 			Str("publish.key", key).
 			Msg("failed to publish to JetStream")
 	}
+
+	// Flush the message immediately to prevent delay
+	err = actor.flush()
 
 	return err
 }
@@ -293,9 +323,9 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 
 		switch actor.config.Nats.StreamConfig.Retention {
 		case nats.WorkQueuePolicy:
-			sub, err = actor.jc().ChanQueueSubscribe(actor.subscribeSubjects(), "workers", actor.subscriptionChan)
+			sub, err = actor.jsc().ChanQueueSubscribe(actor.subscribeSubjects(), "workers", actor.subscriptionChan)
 		default:
-			sub, err = actor.jc().ChanSubscribe(actor.subscribeSubjects(), actor.subscriptionChan)
+			sub, err = actor.jsc().ChanSubscribe(actor.subscribeSubjects(), actor.subscriptionChan)
 		}
 
 		if err == nil {
@@ -315,18 +345,9 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 						Bool("ctx.done", true).
 						Msg("received exit signal from the user. Exiting for loop")
 
-					if actor.onDoneSubscribing != nil {
-						err = actor.onDoneSubscribing()
-						if err != nil {
-							actor.log(zerolog.DebugLevel).
-								Bool("ctx.done", true).
-								Msg("failed to run onDoneSubscribing()")
-						}
-					}
-
 					err = actor.unsubscribeOne(i)
 					if err != nil {
-						actor.log(zerolog.DebugLevel).
+						actor.log(zerolog.ErrorLevel).Caller().Err(err).
 							Bool("ctx.done", true).
 							Msg("failed to unsubscribe from stream")
 					}
@@ -370,6 +391,7 @@ func (actor *Actor) normalizeCommandFromHTTP(r *http.Request) string {
 		default:
 			command = "UPDATE"
 		}
+
 	case "DELETE":
 		command = r.Method
 	}
