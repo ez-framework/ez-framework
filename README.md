@@ -12,6 +12,8 @@ docker compose up
 curl -d '{"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
 
 curl -d '{"ID":"1664724638","Timezone":"UTC","Schedule":"* * * * *","WorkerQueue":"hello"}' http://localhost:3000/api/admin/cron
+
+curl -d '{}' http://localhost:3000/api/admin/worker/hello
 ```
 
 ## Notes 

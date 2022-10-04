@@ -205,6 +205,9 @@ func main() {
 	// Worker is able to receive work from websocket as well
 	r.HandleFunc("/api/admin/ws/worker/hello", workerActor.WSHandler)
 
+	r.Method("POST", "/api/admin/worker/hello", workerActor)
+	r.Method("DELETE", "/api/admin/worker/hello", workerActor)
+
 	httpServer := &http.Server{Addr: *httpAddr, Handler: r}
 
 	wg.Go(func() error {
