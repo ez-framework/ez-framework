@@ -11,6 +11,7 @@ require (
 	github.com/nats-io/graft v0.0.0-20220322173617-5f246deca4c2
 	github.com/nats-io/nats-server/v2 v2.7.4
 	github.com/nats-io/nats.go v1.16.0
+	github.com/recws-org/recws v1.4.0
 	github.com/rs/zerolog v1.28.0
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 )
@@ -19,6 +20,7 @@ require (
 	github.com/ajg/form v1.5.1 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/klauspost/compress v1.14.4 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect

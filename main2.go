@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/recws-org/recws"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -35,8 +36,15 @@ func main() {
 
 	// -----------------------------------------------------------------------------------
 	// Create a WorkerWSActor to receive parameters from websocket server and perform work
-
-	workerWSActor, err := actors.NewWorkerWSActor(wsURL)
+	workerWSActorConfig := actors.WSActorConfig{
+		Workers: 10,
+		WSURL:   wsURL,
+		WSConfig: recws.RecConn{
+			RecIntvlMin: 10 * time.Second,
+			RecIntvlMax: 5 * time.Minute,
+		},
+	}
+	workerWSActor, err := actors.NewWorkerWSActor(workerWSActorConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create workerWSActor")
 	}

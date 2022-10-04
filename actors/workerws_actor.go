@@ -5,24 +5,35 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
+	"github.com/recws-org/recws"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/diode"
 )
 
-func NewWorkerWSActor(wsurl string) (*WorkerWSActor, error) {
+// WSActorConfig
+type WSActorConfig struct {
+	// Workers is the number of workers for this actor
+	Workers int
+
+	// WSURL is the ws:// address to connect to
+	WSURL string
+
+	WSConfig recws.RecConn
+	// One day we may add KV store here
+}
+
+func NewWorkerWSActor(config WSActorConfig) (*WorkerWSActor, error) {
 	actor := &WorkerWSActor{}
 
-	// TODO: Always try to reconnect
-	conn, _, err := websocket.DefaultDialer.Dial(wsurl, nil)
-	if err != nil {
-		return nil, err
-	}
-	actor.wsURL = wsurl
-	actor.wsConn = conn
+	config.WSConfig.Dial(config.WSURL, nil)
+
+	actor.wsConn = config.WSConfig
+	actor.config = config
+	actor.wg = sync.WaitGroup{}
 	actor.subscribers = make(map[string]func(context.Context, *nats.Msg))
 
 	actor.setupLoggers()
@@ -33,8 +44,9 @@ func NewWorkerWSActor(wsurl string) (*WorkerWSActor, error) {
 // WorkerWSActor receives parameters over websocket and execute work
 // It does not inherit from Actor because it doesn't connect to a Nats.
 type WorkerWSActor struct {
-	wsURL       string
-	wsConn      *websocket.Conn
+	config      WSActorConfig
+	wsConn      recws.RecConn
+	wg          sync.WaitGroup
 	subscribers map[string]func(context.Context, *nats.Msg)
 	infoLogger  zerolog.Logger
 	errorLogger zerolog.Logger
@@ -55,15 +67,15 @@ func (actor *WorkerWSActor) log(lvl zerolog.Level) *zerolog.Event {
 	switch lvl {
 	case zerolog.ErrorLevel:
 		return actor.errorLogger.Error().
-			Str("ws.url", actor.wsURL)
+			Str("ws.url", actor.wsConn.GetURL())
 
 	case zerolog.DebugLevel:
 		return actor.debugLogger.Debug().
-			Str("ws.url", actor.wsURL)
+			Str("ws.url", actor.wsConn.GetURL())
 
 	default:
 		return actor.infoLogger.Info().
-			Str("ws.url", actor.wsURL)
+			Str("ws.url", actor.wsConn.GetURL())
 	}
 }
 
@@ -76,6 +88,11 @@ func (actor *WorkerWSActor) commandFromKey(key string) string {
 	}
 
 	return ""
+}
+
+// Close
+func (actor *WorkerWSActor) Close() {
+	actor.wsConn.Close()
 }
 
 // SetOnConfigUpdate
@@ -100,30 +117,48 @@ func (actor *WorkerWSActor) runSubscriberOnce(ctx context.Context, msg *nats.Msg
 func (actor *WorkerWSActor) RunConfigListener(ctx context.Context) {
 	actor.log(zerolog.InfoLevel).Msg("subscribing to websocket")
 
-	for {
-		select {
-		case <-ctx.Done():
-			actor.log(zerolog.DebugLevel).
-				Bool("ctx.done", true).
-				Msg("received exit signal from the user. Exiting for loop")
-			return
+	for i := 0; i < actor.config.Workers; i++ {
+		actor.wg.Add(1)
 
-		default:
-			_, configWithEnvelopeBytes, err := actor.wsConn.ReadMessage()
-			if err != nil {
-				actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to read config + envelope from websocket")
-				continue
+		go func(i int) {
+			defer actor.wg.Done()
+
+			actor.log(zerolog.InfoLevel).Int("index", i).Msg("running a websocket consumer")
+
+			for {
+				select {
+				case <-ctx.Done():
+					actor.log(zerolog.DebugLevel).
+						Bool("ctx.done", true).
+						Msg("received exit signal from the user. Exiting for loop")
+					actor.Close()
+					return
+
+				default:
+					if !actor.wsConn.IsConnected() {
+						// Make sure we don't keep looping every tick when the connection is disconnected.
+						time.Sleep(actor.wsConn.RecIntvlMin)
+						continue
+					}
+
+					_, configWithEnvelopeBytes, err := actor.wsConn.ReadMessage()
+					if err != nil {
+						actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to read config + envelope from websocket")
+						continue
+					}
+
+					msg := &nats.Msg{}
+
+					err = json.Unmarshal(configWithEnvelopeBytes, &msg)
+					if err != nil {
+						actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to unmarshal config + envelope from websocket")
+						continue
+					}
+
+					actor.runSubscriberOnce(ctx, msg)
+				}
 			}
-
-			msg := &nats.Msg{}
-
-			err = json.Unmarshal(configWithEnvelopeBytes, &msg)
-			if err != nil {
-				actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to unmarshal config + envelope from websocket")
-				continue
-			}
-
-			actor.runSubscriberOnce(ctx, msg)
-		}
+		}(i)
 	}
+	actor.wg.Wait()
 }
