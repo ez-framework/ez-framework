@@ -3,6 +3,7 @@ package actors
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go"
@@ -63,18 +64,40 @@ func (actor *WorkerActor) WSHandler(w http.ResponseWriter, r *http.Request) {
 
 	actor.log(zerolog.DebugLevel).Msg("received a websocket connection")
 
-	for {
-		// Channel behaves like a queue, so it works for this use-case.
-		msg := <-actor.subscriptionChan
+	wg := sync.WaitGroup{}
 
-		natsMsgBytes, err := json.Marshal(msg)
-		if err != nil {
-			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to marshal message for websocket clients")
-		}
+	wg.Add(1)
 
-		err = conn.WriteMessage(websocket.TextMessage, natsMsgBytes)
-		if err != nil {
-			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to push message to websocket clients")
-		}
+	sub, err := actor.jsc().ChanQueueSubscribe(actor.subscribeSubjects(), "workers", actor.subscriptionChan)
+	if err != nil {
+		actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to subscribe to nats subjects")
 	}
+	defer sub.Unsubscribe()
+
+	go func() {
+		defer actor.wg.Done()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				actor.log(zerolog.DebugLevel).
+					Bool("ctx.done", true).
+					Msg("received exit signal from the user. Exiting for loop")
+
+				return
+
+			case msg := <-actor.subscriptionChan:
+				natsMsgBytes, err := json.Marshal(msg)
+				if err != nil {
+					actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to marshal message for websocket clients")
+				}
+
+				err = conn.WriteMessage(websocket.TextMessage, natsMsgBytes)
+				if err != nil {
+					actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to push message to websocket clients")
+				}
+			}
+		}
+	}()
+	wg.Wait()
 }

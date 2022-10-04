@@ -331,7 +331,7 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 		if err == nil {
 			actor.subscriptions[i] = sub
 		} else {
-			actor.errorLogger.Err(err).Msg("failed to subscribe to subjects")
+			actor.errorLogger.Err(err).Msg("failed to subscribe to nats subjects")
 			return
 		}
 
