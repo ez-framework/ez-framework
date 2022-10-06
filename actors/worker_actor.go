@@ -87,9 +87,16 @@ func (actor *WorkerActor) WSHandler(w http.ResponseWriter, r *http.Request) {
 				return
 
 			case msg := <-actor.subscriptionChan:
+				err := msg.AckSync()
+				if err != nil {
+					actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to ack the message")
+					continue
+				}
+
 				natsMsgBytes, err := json.Marshal(msg)
 				if err != nil {
 					actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to marshal message for websocket clients")
+					continue
 				}
 
 				err = conn.WriteMessage(websocket.TextMessage, natsMsgBytes)

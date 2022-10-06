@@ -1,6 +1,7 @@
 package actors
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -307,7 +308,10 @@ func (actor *Actor) PublishConfig(key string, data []byte) error {
 func (actor *Actor) runSubscriberOnce(ctx context.Context, msg *nats.Msg) {
 	subscriber, ok := actor.subscribers[actor.commandFromKey(msg.Subject)]
 	if ok {
-		subscriber(ctx, msg)
+		err := msg.AckSync()
+		if err == nil {
+			subscriber(ctx, msg)
+		}
 	}
 }
 
@@ -342,12 +346,14 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					actor.log(zerolog.DebugLevel).
+						Int("worker.index", i).
 						Bool("ctx.done", true).
 						Msg("received exit signal from the user. Exiting for loop")
 
 					err = actor.unsubscribeOne(i)
 					if err != nil {
 						actor.log(zerolog.ErrorLevel).Caller().Err(err).
+							Int("worker.index", i).
 							Bool("ctx.done", true).
 							Msg("failed to unsubscribe from stream")
 					}
@@ -355,6 +361,9 @@ func (actor *Actor) RunConfigListener(ctx context.Context) {
 					return
 
 				case msg := <-actor.subscriptionChan:
+					actor.log(zerolog.InfoLevel).
+						Int("worker.index", i).
+						Msg("consuming a configuration")
 					actor.runSubscriberOnce(ctx, msg)
 				}
 			}
@@ -415,14 +424,16 @@ func (actor *Actor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Update KV store
 	switch command {
 	case "UPDATE":
-		revision, err := actor.configPut(actor.streamName, configJSONBytes)
-		if err != nil {
-			actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to update config in KV store")
-			http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
-			return
+		if !bytes.Equal(configJSONBytes, []byte(`{}`)) {
+			revision, err := actor.configPut(actor.streamName, configJSONBytes)
+			if err != nil {
+				actor.log(zerolog.ErrorLevel).Err(err).Msg("failed to update config in KV store")
+				http_helpers.RenderJSONError(actor.log(zerolog.ErrorLevel), w, r, err, http.StatusInternalServerError)
+				return
 
-		} else {
-			actor.log(zerolog.InfoLevel).Int64("revision", int64(revision)).Msg("updated config in KV store")
+			} else {
+				actor.log(zerolog.InfoLevel).Int64("revision", int64(revision)).Msg("updated config in KV store")
+			}
 		}
 
 	case "DELETE":

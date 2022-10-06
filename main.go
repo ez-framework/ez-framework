@@ -139,6 +139,7 @@ func main() {
 	// CronActor needs a target worker to execute the actual work
 	// We will create a generic worker actor called hello
 	workerActorConfig := actors.ActorConfig{
+		Workers:  2,
 		HTTPAddr: *httpAddr,
 		ConfigKV: confkv,
 		Nats: actors.ActorNatsConfig{
