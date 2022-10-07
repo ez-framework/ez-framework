@@ -1,12 +1,35 @@
 # Easy Framework
 
+NOTE: This framework is still a long way to go, I am still in the exploratory phase.
+
+
+## Problem Statement
+
+I want some of Erlang's OTP features without looking alien in Go world.
+
+* Each daemon should be as small as a goroutine.
+
+* Each daemon is start and stoppable remotely.
+
+* Each daemon config is persistable in a KV store.
+
+* Each daemon has access to a global pubsub system (Nats).
+
+* The API must be clear and easy to adopt.
+
+* This framework must be heavily tested.
+
+
 ## Development Environment
 
 ```
+# to start nats
 docker compose up
 ```
 
-## Misc
+## Dev Notes
+
+Commands to start a raft and to start a cron remotely.
 
 ```
 curl -d '{"ez-raft": {"LogDir":"./.data/","Name":"cluster","Size":3}}' http://localhost:3000/api/admin/configkv
@@ -16,34 +39,3 @@ curl -d '{"ID":"1664724638","Timezone":"UTC","Schedule":"* * * * *","WorkerQueue
 curl -d '{}' http://localhost:3000/api/admin/worker/hello
 ```
 
-## Notes 
-
-The only dependency is Nats.
-
-* Bullet proofing.
-
-  * Each Actor must stop cleanly if needed to.
-
-  * Tests.
-
-  * Godoc.
-
-
-## There are a number of people trying to solve this in 1 runtime.
-
-They are more or less similar to errgroup.
-
-They served as an inspiration on how to streamline the interface. (Which we have a long way to go).
-
-* https://github.com/autom8ter/machine
-
-* https://pkg.go.dev/github.com/oklog/run#pkg-overview
-
-  * https://github.com/oklog/run/blob/v1.1.0/actors.go
-
-  * https://github.com/oklog/run/blob/v1.1.0/group.go
-
-  * https://github.com/stephenafamo/orchestra/blob/master/server.go
-
-
-## Problems
