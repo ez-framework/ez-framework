@@ -3,7 +3,7 @@
 NOTE: This framework is still a long way to go, I am still in the exploratory phase.
 
 
-## Problem Statement
+## Problem Statements
 
 I want some of Erlang's OTP features without looking alien in Go world.
 
@@ -14,6 +14,10 @@ I want some of Erlang's OTP features without looking alien in Go world.
 * Each daemon config is persistable in a KV store.
 
 * Each daemon has access to a global pubsub system (Nats).
+
+* Forming a Raft cluster must be dead simple.
+
+* Adding a leader-only feature must be dead simple.
 
 * The API must be clear and easy to adopt.
 
