@@ -158,7 +158,7 @@ func main() {
 	}
 	workerActor.SetOnConfigUpdate(func(ctx context.Context, msg *nats.Msg) {
 		// Pretend to do a big work
-		outLog.Info().Str("subject", msg.Subject).Bytes("parameters", msg.Data).Msg("hello world!")
+		outLog.Info().Str("subject", msg.Subject).Bytes("configuration", msg.Data).Msg("hello world!")
 	})
 	wg.Go(func() error {
 		workerActor.RunConfigListener(ctx)

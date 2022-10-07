@@ -47,10 +47,3 @@ They served as an inspiration on how to streamline the interface. (Which we have
 
 
 ## Problems
-
-1. Not enough HTTP VERB
-
-  * We need explicit UNSUB command.
-
-    * We need it to call wg.Done()
-
